@@ -1,0 +1,26 @@
+{
+  "name": "whatsapp-chat-analyzer",
+  "version": "1.0.0",
+  "description": "سحب محادثات واتساب وتحليلها، وأساس بوت الرد",
+  "main": "src/export/exportChats.js",
+  "scripts": {
+    "bot": "node src/bot.js",
+    "test": "node --test test/*.test.js",
+    "export": "node src/export/exportChats.js",
+    "analyze": "node src/analytics/analyze.js",
+    "sales": "node src/analytics/sales.js",
+    "study": "node src/analytics/study.js",
+    "report": "node src/analytics/analyze.js && node src/analytics/sales.js && node src/analytics/study.js",
+    "start": "node src/export/exportChats.js && npm run report",
+    "playbook": "node src/analytics/playbook.js",
+    "postinstall": "node scripts/patch-wwebjs.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.11",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^6.4.299",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.34.7"
+  }
+}

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بوت الفحص</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<main class="page">
+  <header class="top">
+    <div>
+      <h1>بوت الفحص المجاني</h1>
+      <div class="wa" id="wa"></div>
+    </div>
+    <label class="switch big" title="تشغيل / إيقاف البوت">
+      <input type="checkbox" id="enabled">
+      <span></span>
+      <b id="enabled-label"></b>
+    </label>
+  </header>
+
+  <section id="qr"></section>
+
+  <section>
+    <h2>نتائج بانتظارك <span class="count" id="count"></span></h2>
+    <div id="results"></div>
+  </section>
+
+  <section>
+    <h2>آخر الطلبات</h2>
+    <div class="card list" id="recent"></div>
+  </section>
+
+  <details class="card settings">
+    <summary>رسائل البوت والإعدادات</summary>
+    <label>لما الزبون يطلب فحص<textarea id="askText" rows="2"></textarea></label>
+    <label>لما يبعت سيرته<textarea id="ackText" rows="2"></textarea></label>
+    <label class="check"><input type="checkbox" id="autoSend"> إذا ما بعتت النتيجة، تنبعت لحالها بعد <input type="number" id="afterMin" min="0" max="1440" class="num"> دقيقة</label>
+    <div class="row">
+      <button class="btn primary" id="save">حفظ</button>
+      <button class="btn" id="relink">تغيير رقم الواتس</button>
+    </div>
+  </details>
+</main>
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+node_modules
+.wwebjs_auth
+.wwebjs_cache
+data
+storage
+.env
+backup-before-simplify
+services
+test
+.git
+*.log

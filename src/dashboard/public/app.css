@@ -1,0 +1,118 @@
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --text: #1c1f24;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #16a34a;
+  --accent-text: #ffffff;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --bad: #dc2626;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111317;
+    --surface: #1b1e24;
+    --text: #e8eaed;
+    --muted: #9aa0a6;
+    --line: #2c3038;
+    --accent: #22c55e;
+    --accent-text: #0b1a10;
+    --warn: #fbbf24;
+    --warn-bg: #3a2e10;
+    --bad: #f87171;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111317;
+  --surface: #1b1e24;
+  --text: #e8eaed;
+  --muted: #9aa0a6;
+  --line: #2c3038;
+  --accent: #22c55e;
+  --accent-text: #0b1a10;
+  --warn: #fbbf24;
+  --warn-bg: #3a2e10;
+  --bad: #f87171;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 Tajawal, system-ui, sans-serif;
+}
+.page { max-width: 760px; margin: 0 auto; padding: 24px 16px 60px; }
+h1 { font-size: 22px; margin: 0; }
+h2 { font-size: 17px; margin: 28px 0 10px; display: flex; align-items: center; gap: 8px; }
+.muted { color: var(--muted); font-size: 14px; }
+
+.top { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.wa { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.dot.ok { background: var(--accent); }
+.dot.bad { background: var(--bad); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+.empty { color: var(--muted); text-align: center; padding: 18px; }
+.count { background: var(--accent); color: var(--accent-text); border-radius: 999px; font-size: 13px; padding: 0 9px; }
+.count:empty { display: none; }
+
+.result { margin-bottom: 12px; }
+.result .head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.result img { width: 100%; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 8px; }
+.note { font-size: 13px; color: var(--muted); }
+.note.warn { color: var(--warn); background: var(--warn-bg); padding: 6px 10px; border-radius: 8px; }
+
+textarea {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  resize: vertical;
+}
+.row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.btn {
+  font: inherit;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.sm { padding: 4px 12px; font-size: 14px; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+.list .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.list .item:last-child { border-bottom: 0; }
+.tag { font-size: 13px; border-radius: 999px; padding: 1px 10px; border: 1px solid var(--line); white-space: nowrap; }
+
+.settings { margin-top: 28px; }
+.settings summary { cursor: pointer; font-weight: 700; }
+.settings label { display: block; margin-top: 12px; font-size: 14px; color: var(--muted); }
+.settings label.check { color: var(--text); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.num { width: 64px; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px 6px; text-align: center; }
+
+.qr { text-align: center; margin-top: 20px; }
+.qr img { background: #fff; padding: 8px; border-radius: 10px; }
+
+.switch { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.switch input { display: none; }
+.switch span { width: 50px; height: 28px; border-radius: 999px; background: var(--line); position: relative; transition: background .2s; flex: none; }
+.switch span::after { content: ''; position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: right .2s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { right: 25px; }
+
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 10px; font-size: 15px;
+}
+.toast.err { background: var(--bad); color: #fff; }

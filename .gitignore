@@ -1,0 +1,9 @@
+node_modules/
+.wwebjs_auth/
+.wwebjs_cache/
+data/
+.env
+__pycache__/
+*.pyc
+backup-before-simplify/
+storage/
