@@ -47,6 +47,9 @@ async function fromPdf(buffer, maxPages) {
   const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), isEvalSupported: false, verbosity: 0 }).promise;
   const facts = { pages: doc.numPages, photo: false, icons: 0, colors: new Set() };
   const lines = [];
+  let totalRows = 0;
+  let splitRows = 0;
+  let verticalLines = 0; // خطوط عمودية = حدود جداول (الخط الفاصل الأفقي تحت العناوين مش جدول)
 
   for (let p = 1; p <= Math.min(doc.numPages, maxPages); p++) {
     const page = await doc.getPage(p);
@@ -60,8 +63,19 @@ async function fromPdf(buffer, maxPages) {
       if (!rows.has(y)) rows.set(y, []);
       rows.get(y).push(it);
     }
+    const pageWidth = page.view[2] - page.view[0];
     for (const y of [...rows.keys()].sort((a, b) => b - a)) {
-      lines.push(rows.get(y).sort((a, b) => a.transform[4] - b.transform[4]).map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim());
+      const items = rows.get(y).sort((a, b) => a.transform[4] - b.transform[4]);
+      lines.push(items.map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim());
+      // سطر فيه فراغ كبير بالنص = عمودين جنب بعض بهاد السطر
+      totalRows++;
+      for (let k = 1; k < items.length; k++) {
+        const gap = items[k].transform[4] - (items[k - 1].transform[4] + (items[k - 1].width || 0));
+        if (gap > pageWidth * 0.12) {
+          splitRows++;
+          break;
+        }
+      }
     }
 
     // الحقائق: الصور وأحجامها، والألوان
@@ -80,6 +94,13 @@ async function fromPdf(buffer, maxPages) {
         const h = Math.hypot(ctm[2], ctm[3]) / PT_PER_INCH;
         if (p === 1 && looksLikePhoto(w, h)) facts.photo = true;
         if (looksLikeIcon(w, h)) facts.icons++;
+      } else if (fn === O.constructPath) {
+        const box = args[args.length - 1]; // [minX, minY, maxX, maxY]
+        if (box && box.length >= 4) {
+          const w = Math.abs(box[2] - box[0]) * Math.hypot(ctm[0], ctm[1]);
+          const h = Math.abs(box[3] - box[1]) * Math.hypot(ctm[2], ctm[3]);
+          if (w <= 3 && h >= 12) verticalLines++;
+        }
       } else if (fn === O.setFillRGBColor || fn === O.setStrokeRGBColor) {
         const hex = typeof args[0] === 'string' ? args[0]
           : '#' + args.slice(0, 3).map((v) => Math.round(v > 1 ? v : v * 255).toString(16).padStart(2, '0')).join('');
@@ -89,7 +110,10 @@ async function fromPdf(buffer, maxPages) {
   }
   const text = lines.join('\n');
   facts.icons += countIcons(text);
-  return { text: text.replace(PUA, ''), facts: { ...facts, colors: facts.colors.size } };
+  // تصميم بأعمدة (عمود جانبي مثلاً) = أغلب الصفحة مقسومة. قائمة مهارات قصيرة بعمودين مش هيك
+  const columns = totalRows >= 15 ? splitRows / totalRows >= 0.3 : null;
+  const tables = verticalLines >= 4;
+  return { text: text.replace(PUA, ''), facts: { ...facts, colors: facts.colors.size, columns, tables } };
 }
 
 async function fromDocx(buffer) {
@@ -135,7 +159,8 @@ async function renderPdf(buffer, maxPages, scale = 1.5) {
 
 // حقائق من النص نفسه (حتى لو العربي مقطّع شوي، كلمات المستوى والعناوين بتضل مبيّنة)
 // عشان ما نصدّق الموديل لما يحكي "مش كاتب مستواك" أو "قسّم المهارات" وهي مكتوبة
-const LEVEL = /متوسط|ممتاز|جيد|مبتدئ|اللغة ال[اأإ]?ل?[اأ]?م|لغة ام|native|fluent|good|intermediate|advanced|beginner|excellent|proficient|mother tongue|basic|\b[abc][12]\b/i;
+// "األم" = "الأم" بعد ما الـPDF يقطّع الحروف
+const LEVEL = /متوسط|متقدم|ممتاز|جيد|مبتدئ|ضعيف|اساسي|أساسي|طلاق|احتراف|محادث|اللغة ال[اأإ]?ل?[اأ]?م|لغة ام|الأم|األم|الام|native|fluent|good|intermediate|advanced|beginner|excellent|proficient|mother tongue|basic|\b[abc][12]\b/i;
 const SKILL_HEAD = /^(المهارات|مهارات|skills)\s*$/i;
 const SKILL_SUB = /برامج|البرامج|الانظمة|األنظمة|الأنظمة|المهنية|الشخصية|التقنية|الفنية|التخصصية|الادارية|اإلدارية|الإدارية|الناعمة|technical|soft|hard|software|tools|professional|personal|computer|interpersonal/i;
 const MAIN_HEAD = /^(اللغات|languages|الدورات|courses|المراجع|المعرفين|references|التعليم|المؤهالت|المؤهلات|education|الخبرات|experience|الجوائز|awards|certificates|الشهادات)/i;
@@ -185,4 +210,4 @@ async function extract({ buffer, mimetype, filename }, maxPages) {
   return { kind: 'unsupported' };
 }
 
-module.exports = { extract, renderPdf, textFacts };
+module.exports = { extract, renderPdf, textFacts, fromPdf };
