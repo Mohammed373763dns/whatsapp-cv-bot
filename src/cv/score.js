@@ -142,21 +142,24 @@ async function drawCard({ score, criteria, ats }, previewBuffer) {
   if (previewBuffer) {
     try {
       const img = await loadImage(previewBuffer);
+      // الصورة بتعبّي المربع كله (بدون فراغ أبيض تحت): بتتكبّر لتغطيه، والزيادة بتنقص من الأطراف أو من تحت
+      const bx = px + 20;
+      const by = py + 50;
       const boxW = pw - 40;
       const boxH = ph - 70;
-      const s = Math.min(boxW / img.width, boxH / img.height);
+      const s = Math.max(boxW / img.width, boxH / img.height);
       const w = img.width * s;
       const h = img.height * s;
-      const ix = px + 20 + (boxW - w) / 2;
-      const iy = py + 50;
       ctx.save();
-      roundRect(ctx, ix, iy, w, h, 6);
+      roundRect(ctx, bx, by, boxW, boxH, 6);
       ctx.clip();
-      ctx.drawImage(img, ix, iy, w, h);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(bx, by, boxW, boxH);
+      ctx.drawImage(img, bx + (boxW - w) / 2, by, w, h); // من فوق (الاسم والبداية دايماً بيّنين)
       ctx.restore();
       ctx.strokeStyle = '#e5e7eb';
       ctx.lineWidth = 1;
-      roundRect(ctx, ix, iy, w, h, 6);
+      roundRect(ctx, bx, by, boxW, boxH, 6);
       ctx.stroke();
     } catch {}
   }
