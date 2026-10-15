@@ -18,6 +18,9 @@ const RECEIVED = 'cv_received';
 // أي رقم وصل لهون (أو أبعد بالنظام القديم) أخد فحصه
 const USED = new Set([RECEIVED, 'checked', 'awaiting_job_title', 'quoted', 'payment_requested', 'paid', 'delivered']);
 const FILE_TYPES = new Set(['document', 'image']);
+// رسائل حقيقية بس. الباقي (e2e_notification وإشعارات الواتس) ما بنخزنه ولا بيبين باللوحة
+const REAL_TYPES = ['chat', 'image', 'document', 'ptt', 'audio', 'video', 'sticker', 'location', 'vcard', 'multi_vcard'];
+const LABELS = { document: '📄 ملف', image: '📷 صورة', ptt: '🎤 رسالة صوتية', audio: '🎤 رسالة صوتية', video: '🎥 فيديو', sticker: 'ملصق', location: '📍 موقع', vcard: '👤 جهة اتصال', multi_vcard: '👤 جهات اتصال' };
 // منستنى الزبون يخلص (كذا صورة، أو "افحصوا آخر وحدة" بعد الملفات) وبعدين منقرر مرة وحدة
 const WAIT_AFTER_FILE_MS = 20e3;
 const WAIT_AFTER_TEXT_MS = 8e3;
@@ -86,7 +89,7 @@ const DECIDE_PROMPT = `انت مساعد لشركة بتعمل فحص مجاني
 function conversationText(chatId, files) {
   const num = new Map(files.map((f, i) => [f.id, i + 1]));
   return db.history(chatId, 25).map((m) => {
-    const who = !m.from_me ? 'الزبون' : m.by_bot ? 'البوت' : 'الموظف';
+    const who = !m.from_me ? 'الزبون' : m.by_bot === 1 ? 'البوت' : 'الموظف';
     if (num.has(m.id)) return `${who}: [ملف ${num.get(m.id)}: ${m.type === 'image' ? 'صورة' : m.body.replace(/^📄 /, '')}]`;
     if (FILE_TYPES.has(m.type)) return `${who}: [ملف قديم: ${m.body}]`;
     return `${who}: ${m.body}`;
@@ -229,15 +232,16 @@ function insertScore(text, score, template) {
 
 async function handle(msg, sender, wa) {
   // نفس الرسالة ما بتنعالج مرتين (البوت بيرجع يشيك على الرسائل بعد التشغيل)
+  if (!REAL_TYPES.includes(msg.type)) return;
   if (db.db.prepare('SELECT 1 FROM messages WHERE id = ?').get(msg.id)) return;
   db.saveChat({ id: msg.chatId, name: msg.name, phone: msg.phone });
-  const shown = msg.body || (msg.type === 'document' ? `📄 ${msg.filename || 'ملف'}` : msg.type === 'image' ? '📷 صورة' : '');
-  db.saveMessage({ ...msg, body: shown });
-
-  if (msg.fromMe) {
-    if (sender.isBotEcho(msg)) db.db.prepare('UPDATE messages SET by_bot = 1 WHERE id = ?').run(msg.id);
-    return;
-  }
+  const label = msg.type === 'document' ? `📄 ${msg.filename || 'ملف'}` : LABELS[msg.type] || '';
+  // صورة أو ملف مع تعليق: منبيّن الاتنين
+  const shown = msg.type === 'chat' ? msg.body : [label, msg.body].filter(Boolean).join('\n');
+  // رسالة منك من اللوحة أو من البوت (مش من جوال الموظف)
+  const echo = msg.fromMe ? sender.isBotEcho(msg) || 0 : 0;
+  db.saveMessage({ ...msg, body: shown, byBot: echo });
+  if (msg.fromMe) return;
   if (!settings.get().enabled) return;
   const chat = db.getChat(msg.chatId);
   if (chat.muted || usedCheck(chat)) return;
@@ -249,4 +253,4 @@ async function handle(msg, sender, wa) {
   }
 }
 
-module.exports = { handle, decide, checkNow, wantsCheck, usedCheck, sendDueResults, startAutoSend, RECEIVED };
+module.exports = { REAL_TYPES, handle, decide, checkNow, wantsCheck, usedCheck, sendDueResults, startAutoSend, RECEIVED };

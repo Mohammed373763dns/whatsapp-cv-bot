@@ -7,6 +7,20 @@ const settings = require('../settings');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (min, max) => min + Math.random() * (max - min);
 
+// الواتس ما رد؟ ما منضل نستنى للأبد: الرد بيصير "فشل" وبتقدر تعيد إرساله من اللوحة
+const SEND_TIMEOUT_MS = 90e3;
+function withTimeout(promise, ms, what) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`الواتس ما رد خلال ${Math.round(ms / 1000)} ثانية (${what})`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+// markSeen و"عم يكتب" مش ضروريين: إذا علقوا منكمل
+const quick = (p) => withTimeout(p, 10e3, 'quick').catch(() => {});
+
 class SafeSender extends EventEmitter {
   constructor(wa) {
     super();
@@ -14,22 +28,23 @@ class SafeSender extends EventEmitter {
     this.queue = [];
     this.sentAt = []; // أوقات الإرسال لحساب الحدود
     this.running = false;
-    this.echoes = new Map(); // نصوص البوت اللي عم تنبعت، عشان ما نفكرها رسالة منك
+    this.echoes = new Map(); // نصوص عم تنبعت من هون، عشان ما نفكرها رسالة الموظف من الجوال
   }
 
+  // 1 = البوت، 2 = إنت من اللوحة، 0 = مش من هون (الموظف من الجوال)
   isBotEcho(m) {
     const key = `${m.chatId}|${m.body}`;
-    const t = this.echoes.get(key);
-    if (t && Date.now() - t < 120e3) {
+    const e = this.echoes.get(key);
+    if (e && Date.now() - e.at < 180e3) {
       this.echoes.delete(key);
-      return true;
+      return e.by;
     }
-    return false;
+    return 0;
   }
 
   enqueue(replyId) {
     if (this.queue.includes(replyId)) return;
-    db.setReplyStatus(replyId, 'queued');
+    db.setReplyStatus(replyId, 'queued', { queued_at: db.now() });
     this.queue.push(replyId);
     this._run();
   }
@@ -75,31 +90,32 @@ class SafeSender extends EventEmitter {
   async _deliver(reply) {
     const S = settings.get().safety;
     const { chat_id: chatId, text } = reply;
+    const echo = { at: Date.now(), by: reply.source === 'manual' ? 2 : 1 };
     // النتيجة إنت كبست عليها "ابعت" فبتطلع بسرعة. ردود البوت بتستنى شوي زي الإنسان
     const [min, max] = reply.scenario === 'result' ? [1, 3] : [S.MIN_REPLY_DELAY_SEC, S.MAX_REPLY_DELAY_SEC];
-    await this.wa.markSeen(chatId).catch(() => {});
+    await quick(this.wa.markSeen(chatId));
     await sleep(rand(min, max) * 1000);
     await this._waitForRateLimit();
-    await this.wa.typing(chatId, true).catch(() => {});
+    await quick(this.wa.typing(chatId, true));
     await sleep(Math.max(1.5, Math.min(text.length / rand(7, 13), S.MAX_TYPING_SEC)) * 1000);
 
     // صورة الدرجة فوق ونص الفحص تحتها برسالة وحدة
     if (reply.attachment && fs.existsSync(reply.attachment)) {
       const image = fs.readFileSync(reply.attachment);
-      this.echoes.set(`${chatId}|${text}`, Date.now());
+      this.echoes.set(`${chatId}|${text}`, echo);
       try {
-        await this.wa.sendImage(chatId, image, 'image/jpeg', text);
+        await withTimeout(this.wa.sendImage(chatId, image, 'image/jpeg', text), SEND_TIMEOUT_MS, 'صورة الفحص');
         this.sentAt.push(Date.now());
         return;
       } catch (err) {
         // الواتس رفض النص الطويل تحت الصورة؟ الصورة لحال والنص بعدها
         console.error('caption send failed, sending image alone:', err.message);
-        await this.wa.sendImage(chatId, image, 'image/jpeg', '').catch((e) => console.error('image send failed:', e.message));
+        await withTimeout(this.wa.sendImage(chatId, image, 'image/jpeg', ''), SEND_TIMEOUT_MS, 'الصورة').catch((e) => console.error('image send failed:', e.message));
         await sleep(rand(2, 4) * 1000);
       }
     }
-    this.echoes.set(`${chatId}|${text}`, Date.now());
-    await this.wa.sendText(chatId, text);
+    this.echoes.set(`${chatId}|${text}`, echo);
+    await withTimeout(this.wa.sendText(chatId, text), SEND_TIMEOUT_MS, 'الرسالة');
     this.sentAt.push(Date.now());
     setTimeout(() => {
       if (!this.queue.length) this.wa.goOffline?.().catch(() => {});

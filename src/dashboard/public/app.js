@@ -1,7 +1,19 @@
-// صفحة وحدة: حالة الواتس، تشغيل/إيقاف، نتائج الفحص، كل المحادثات، والإعدادات
+// لوحة البوت — زي واتساب ويب: القائمة على جنب، المحادثة بالنص، ونتيجة الفحص تحت الرسائل
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const enc = encodeURIComponent;
+const now = () => Math.floor(Date.now() / 1000);
+
+const ICONS = {
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  back: '<path d="M9 6l6 6-6 6"/>',
+  send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/>',
+  mute: '<path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/>',
+  sound: '<path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>',
+  reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+};
+const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
 
 async function api(url, body) {
   const res = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
@@ -14,11 +26,10 @@ function toast(text, err = false) {
   t.className = 'toast' + (err ? ' err' : '');
   t.hidden = false;
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => (t.hidden = true), 3000);
+  t._timer = setTimeout(() => (t.hidden = true), err ? 5000 : 2500);
 }
 
 const typingIn = (el) => el.contains(document.activeElement) && /TEXTAREA|INPUT/.test(document.activeElement.tagName);
-
 // بيرسم بس إذا تغيّر شي، وما بيرسم فوق كتابتك
 function patch(el, html) {
   if (!el || el.__html === html || typingIn(el)) return false;
@@ -27,213 +38,291 @@ function patch(el, html) {
   return true;
 }
 
-const ago = (ts) => {
-  if (!ts) return '';
-  const s = Math.floor(Date.now() / 1000) - ts;
-  if (s < 60) return 'هلأ';
-  if (s < 3600) return `قبل ${Math.floor(s / 60)} د`;
-  if (s < 86400) return `قبل ${Math.floor(s / 3600)} س`;
-  return new Date(ts * 1000).toLocaleDateString('ar', { day: 'numeric', month: 'short' });
+/* ------------------------------ تنسيق ------------------------------ */
+// الأرقام بتنكتب من الشمال لليمين حتى جوا صفحة عربية (+972 56-830-7434 مش 56-830-7434 972+)
+const looksLikePhone = (s) => /^[+\d][\d\s\-()]+$/.test(String(s || '').trim());
+const phone = (p) => (p ? `<bdi dir="ltr">+${esc(p)}</bdi>` : '');
+const nameOf = (c) => {
+  if (c.name && !looksLikePhone(c.name)) return `<bdi>${esc(c.name)}</bdi>`;
+  if (c.name) return `<bdi dir="ltr">${esc(c.name)}</bdi>`;
+  return phone(c.phone) || 'زبون';
 };
+const initial = (c) => (c.name && !looksLikePhone(c.name) ? esc(c.name.trim()[0]) : '#');
 const hhmm = (ts) => new Date(ts * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const dayOf = (ts) => new Date(ts * 1000).toLocaleDateString('ar', { weekday: 'long', day: 'numeric', month: 'long' });
-const who = (c) => esc(c.name || (c.phone ? '+' + c.phone : 'زبون'));
-const STATUS = {
-  new: ['', 'ما انفحص'],
-  checked: ['warn', 'انفحص'],
-  sent: ['ok', 'انبعتت النتيجة'],
-  muted: ['', '🔇 البوت ساكت'],
-};
-const tag = (s) => `<span class="tag ${STATUS[s][0]}">${STATUS[s][1]}</span>`;
+function when(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  if (d.toDateString() === new Date().toDateString()) return hhmm(ts);
+  if (now() - ts < 6 * 86400) return d.toLocaleDateString('ar', { weekday: 'long' });
+  return d.toLocaleDateString('ar', { day: 'numeric', month: 'short' });
+}
+const mins = (s) => (s < 60 ? 'أقل من دقيقة' : s < 3600 ? `${Math.round(s / 60)} د` : `${Math.round(s / 3600)} س`);
 
-// "بتنبعت لحالها بعد 12 د" — نفس حساب السيرفر (بعد 3 ساعات تأخير ما بتنبعت لحالها)
-function autoIn(r, a) {
-  if (!a?.enabled || !r.text || r.status !== 'pending') return '';
-  const left = r.created + a.afterMin * 60 - Math.floor(Date.now() / 1000);
-  if (left < -3 * 3600) return '';
-  return `<div class="note">⏱ ${left > 60 ? `بتنبعت لحالها بعد ${Math.ceil(left / 60)} د` : 'بتنبعت لحالها هلأ'}</div>`;
+/* ------------------------------ الحالة ------------------------------ */
+let S = null; // حالة السيرفر (الواتس، الإعدادات، النتائج)
+let CHATS = [];
+let filter = 'all';
+let openId = null;
+try { openId = sessionStorage.getItem('chat'); } catch {}
+
+const BADGE = {
+  wait: ['wait', 'نتيجة بتستنى'],
+  sent: ['done', '✓ انبعتت'],
+  checked: ['checked', 'انفحص'],
+  muted: ['muted', '🔇 ساكت'],
+  new: ['', ''],
+};
+const statusOf = (c) => (c.waiting ? 'wait' : c.status);
+const FILTERS = [
+  ['all', 'الكل', () => true],
+  ['wait', 'بانتظارك', (c) => c.waiting],
+  ['new', 'ما انفحص', (c) => c.status === 'new'],
+  ['done', 'انفحص', (c) => c.status === 'checked' || c.status === 'sent'],
+  ['muted', 'ساكت', (c) => c.status === 'muted'],
+];
+
+const WA = { ready: 'متصل', qr: 'بانتظار مسح الكود', starting: 'عم يشتغل...', syncing: 'عم يزامن...', logging_out: 'عم يسجل خروج...', retrying: 'عم يعيد الاتصال...', stopped: 'مطفي' };
+
+function renderBar() {
+  const key = (S.whatsapp.status || '').split(':')[0];
+  const dot = S.whatsapp.ready ? 'ok' : /disconnected|retrying/.test(key) ? 'bad' : '';
+  patch($('#wa'), `<span class="dot ${dot}"></span><span>واتساب ${esc(WA[key] || S.whatsapp.status)}</span>${S.whatsapp.account?.phone ? `<span class="acct">· ${phone(S.whatsapp.account.phone)}</span>` : ''}`);
+  $('#enabled').checked = S.enabled;
+  $('#enabled-label').textContent = S.enabled ? 'البوت شغّال' : 'البوت موقّف';
+  const n = S.results.length;
+  const wb = $('#waiting-btn');
+  wb.hidden = !n;
+  wb.textContent = `${n} بانتظارك`;
+
+  const qr = $('#qr');
+  qr.hidden = !S.whatsapp.qr;
+  if (S.whatsapp.qr) patch(qr, `<div class="qr-card"><b>اربط رقم الواتس</b><p>من الجوال: الإعدادات ← الأجهزة المرتبطة ← ربط جهاز، وامسح الكود</p><img src="${S.whatsapp.qr}" alt="كود QR"></div>`);
+
+  if (!$('#ackText').dataset.loaded) {
+    $('#ackText').value = S.ackText;
+    $('#ackText').dataset.loaded = '1';
+  }
+  $('#autoSend').checked = S.autoSend.enabled;
+  if (document.activeElement !== $('#afterMin')) $('#afterMin').value = S.autoSend.afterMin;
 }
 
-let S = null; // آخر حالة من السيرفر
+function renderList() {
+  const count = (fn) => CHATS.filter(fn).length;
+  patch($('#chips'), FILTERS.map(([id, label, fn]) => {
+    const n = count(fn);
+    return `<button class="chip ${filter === id ? 'on' : ''}" data-filter="${id}">${label}${id !== 'all' && n ? ` ${n}` : ''}</button>`;
+  }).join(''));
+  const fn = FILTERS.find((f) => f[0] === filter)[2];
+  const list = CHATS.filter(fn);
+  patch($('#items'), list.length
+    ? list.map((c) => {
+      const [cls, label] = BADGE[statusOf(c)];
+      return `<button class="item ${c.id === openId ? 'on' : ''}" data-open="${esc(c.id)}">
+        <span class="avatar">${initial(c)}</span>
+        <span class="main">
+          <span class="l1"><span class="name">${nameOf(c)}</span><span class="time">${when(Math.max(c.last_in || 0, c.last_out || 0))}</span></span>
+          <span class="l2"><span class="prev">${c.last_from_me ? '✓ ' : ''}${esc((c.last_body || '').split('\n')[0])}</span>${label ? `<span class="badge ${cls}">${label}</span>` : ''}</span>
+        </span>
+      </button>`;
+    }).join('')
+    : `<div class="list-empty">${filter === 'all' ? 'لسا ما في محادثات' : 'ما في محادثات هون'}</div>`);
+}
 
-function resultCard(r, withName = true) {
-  return `<div class="card result" data-id="${r.id}">
-    ${withName ? `<div class="head"><button class="btn sm" data-open="${esc(r.chat_id)}">${who(r)}</button><span class="muted">${ago(r.created)}</span></div>` : ''}
-    ${r.image ? `<img src="${esc(r.image)}" alt="صورة درجة الفحص">` : ''}
-    ${r.text ? '' : `<p class="note warn">${esc(r.note || 'الفحص ما زبط')} — اكتب النتيجة بإيدك وابعتها</p>`}
-    ${r.status === 'failed' ? `<p class="note warn">${esc(r.note)}</p>` : ''}
-    <textarea rows="8">${esc(r.text)}</textarea>
-    ${r.text && r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
-    ${autoIn(r, S?.autoSend)}
-    <div class="row">
-      <button class="btn primary" data-send ${r.status === 'queued' ? 'disabled' : ''}>${r.status === 'queued' ? 'عم ينبعت...' : 'ابعت للزبون'}</button>
+/* ------------------------------ المحادثة ------------------------------ */
+function bubble(m) {
+  const src = !m.from_me ? '' : m.by_bot === 1 ? 'البوت' : m.by_bot === 2 ? 'إنت (من اللوحة)' : 'الموظف';
+  const cls = !m.from_me ? '' : m.by_bot === 1 ? 'out bot' : 'out';
+  const file = !m.from_me && (m.type === 'document' || m.type === 'image');
+  return `<div class="msg ${cls}"><div class="txt">${esc(m.body || '')}</div>`
+    + (file ? `<div class="act"><button class="link-btn" data-check="${esc(m.id)}">افحص هاد الملف</button></div>` : '')
+    + `<div class="meta">${src ? `<span class="src">${src}</span>` : ''}<span>${hhmm(m.ts)}</span></div></div>`;
+}
+
+function resultPanel(r) {
+  const failed = r.status === 'failed';
+  const queued = r.status === 'queued';
+  const waited = queued && r.queued_at ? now() - r.queued_at : 0;
+  let left = '';
+  if (S.autoSend.enabled && r.text && r.status === 'pending') {
+    const s = r.created + S.autoSend.afterMin * 60 - now();
+    if (s > -3 * 3600) left = `<span class="countdown">⏱ ${s > 60 ? `بتنبعت لحالها بعد ${mins(s)}` : 'بتنبعت لحالها هلأ'}</span>`;
+  }
+  const score = (r.note || '').match(/الدرجة (\d+)%/);
+  return `<div class="result ${failed || !r.text ? 'fail' : ''}" data-id="${r.id}">
+    <div class="result-head"><b>نتيجة الفحص</b>${score ? `<span class="meta">الدرجة ${score[1]}%</span>` : ''}${left}</div>
+    ${!r.text ? `<div class="alert warn">الفحص ما زبط: ${esc(r.note || '')}. اكتب النتيجة بإيدك وابعتها.</div>` : ''}
+    ${failed ? `<div class="alert bad">ما انبعتت: ${esc((r.note || '').replace(/^.*فشل الإرسال: /, ''))}</div>` : ''}
+    ${queued && !S.whatsapp.ready ? '<div class="alert warn">بتستنى الواتس يرجع يتصل وبتنبعت لحالها</div>' : ''}
+    ${queued && S.whatsapp.ready && waited > 120 ? `<div class="alert warn">صرلها ${mins(waited)} عم تنبعت. إذا ما انبعتت خلال دقيقتين بتطلعلك "حاول مرة تانية"</div>` : ''}
+    <div class="result-body">
+      ${r.image ? `<img class="thumb" src="${esc(r.image)}" alt="صورة الدرجة" data-zoom>` : ''}
+      <textarea rows="7" aria-label="نص نتيجة الفحص">${esc(r.text)}</textarea>
+    </div>
+    <div class="foot">
+      <span class="note">${esc(r.note || '')}</span>
       <button class="btn" data-dismiss>تجاهل</button>
+      <button class="btn primary" data-send ${queued ? 'disabled' : ''}>${queued ? 'عم تنبعت...' : failed ? 'حاول مرة تانية' : 'ابعت للزبون'}</button>
     </div>
   </div>`;
 }
 
-/* ------------------------------ الحالة والنتائج ------------------------------ */
-const WA = { ready: 'واتساب متصل', qr: 'امسح الكود من الجوال', starting: 'عم يشتغل...', syncing: 'عم يزامن...', logging_out: 'عم يسجل خروج...' };
-
-function renderState(s) {
-  S = s;
-  const key = (s.whatsapp.status || '').split(':')[0];
-  const dot = key === 'ready' ? 'ok' : /disconnected|retrying/.test(key) ? 'bad' : '';
-  const acct = s.whatsapp.account?.phone ? ` · +${esc(s.whatsapp.account.phone)}` : '';
-  patch($('#wa'), `<span class="dot ${dot}"></span>${esc(WA[key] || s.whatsapp.status)}${acct}`);
-
-  $('#enabled').checked = s.enabled;
-  $('#enabled-label').textContent = s.enabled ? 'البوت شغّال' : 'البوت موقّف';
-
-  patch($('#qr'), s.whatsapp.qr
-    ? `<div class="card qr"><b>اربط الواتس</b><p class="muted">من الجوال: الإعدادات ← الأجهزة المرتبطة ← ربط جهاز</p><img src="${s.whatsapp.qr}" alt="QR" width="260" height="260"></div>`
-    : '');
-
-  $('#count').textContent = s.results.length || '';
-  patch($('#results'), s.results.length ? s.results.map((r) => resultCard(r)).join('') : '<div class="card empty">ما في نتائج بتستنى 👌</div>');
-
-  // خانات الإعدادات بتتعبى أول مرة بس (عشان ما تمسح اللي عم تكتبه)
-  if (!$('#ackText').dataset.loaded) {
-    $('#ackText').value = s.ackText;
-    $('#ackText').dataset.loaded = '1';
-  }
-  $('#autoSend').checked = s.autoSend.enabled;
-  if (document.activeElement !== $('#afterMin')) $('#afterMin').value = s.autoSend.afterMin;
-}
-
-/* ------------------------------ المحادثات ------------------------------ */
-let openId = null;
-try { openId = sessionStorage.getItem('chat'); } catch {}
-
-async function renderList() {
-  const list = await api(`/api/chats?q=${enc($('#q').value)}`);
-  patch($('#items'), list.length
-    ? list.map((c) => `<button class="item ${c.id === openId ? 'on' : ''}" data-open="${esc(c.id)}">
-        <div class="line1"><b>${who(c)}</b><span class="muted">${ago(Math.max(c.last_in || 0, c.last_out || 0))}</span></div>
-        <div class="line1"><span class="prev">${c.last_from_me ? '✓ ' : ''}${esc(c.last_body)}</span>${c.waiting ? '<span class="tag warn">نتيجة بتستنى</span>' : tag(c.status)}</div>
-      </button>`).join('')
-    : '<div class="empty">ما في محادثات</div>');
-}
-
-const isFileMsg = (m) => !m.from_me && (m.type === 'document' || m.type === 'image');
-
-async function renderDetail() {
-  const box = $('#detail');
+async function renderConv() {
+  const box = $('#conv');
   if (!openId) return;
   const d = await api(`/api/chats/${enc(openId)}`);
-  if (d.error) {
-    openId = null;
-    box.innerHTML = '<div class="empty">اختار محادثة من القائمة</div>';
-    return;
-  }
-  // الهيكل بينبني مرة لكل محادثة (عشان خانة الكتابة ما تنمسح)
+  if (d.error) return closeChat();
+  const c = d.chat;
   if (box.dataset.chat !== openId) {
     box.dataset.chat = openId;
-    box.innerHTML = `<div class="dhead" id="dhead"></div><div class="msgs" id="msgs"></div>
-      <div class="compose"><textarea id="compose" rows="1" placeholder="اكتب رسالة للزبون..."></textarea><button class="btn primary" id="send-msg">ابعت</button></div>`;
+    box.innerHTML = `<div class="conv-head" id="head"></div><div class="msgs" id="msgs"></div><div id="results"></div>
+      <div class="composer"><textarea id="compose" rows="1" placeholder="اكتب رسالة للزبون"></textarea><button class="send-btn" id="send-msg" aria-label="ابعت">${icon('send')}</button></div>`;
   }
-  const c = d.chat;
-  patch($('#dhead'), `<div class="line1" style="display:flex;justify-content:space-between;gap:8px;align-items:center">
-      <div><b>${who(c)}</b> ${c.phone ? `<span class="muted" dir="ltr">+${esc(c.phone)}</span>` : ''}</div>${tag(c.status)}</div>
-    <div class="row">
-      <button class="btn sm" data-mute="${c.muted ? 0 : 1}">${c.muted ? '🔈 شغّل البوت مع هالرقم' : '🔇 سكّت البوت مع هالرقم'}</button>
-      <button class="btn sm" data-reset title="الرقم بيرجع جديد وبيقدر ينفحص مرة كمان. المحادثة بتضل">امسح سجل البوت</button>
-      <button class="btn sm danger" data-delete title="بتنحذف من اللوحة بس، مش من الواتس">احذف من اللوحة</button>
-    </div>`);
+  patch($('#head'), `<button class="icon-btn back" data-back aria-label="رجوع">${icon('back')}</button>
+    <span class="avatar">${initial(c)}</span>
+    <div class="who"><b>${nameOf(c)}</b><small>${phone(c.phone)}</small></div>
+    <button class="icon-btn ${c.muted ? 'on' : ''}" data-mute="${c.muted ? 0 : 1}" title="${c.muted ? 'البوت ساكت مع هالرقم — اكبس لتشغيله' : 'سكّت البوت مع هالرقم'}">${icon(c.muted ? 'mute' : 'sound')}</button>
+    <button class="icon-btn" data-reset title="امسح سجل البوت (الرقم بيقدر ينفحص مرة كمان)">${icon('reset')}</button>
+    <button class="icon-btn danger" data-delete title="احذف من اللوحة (مش من الواتس)">${icon('trash')}</button>`);
 
   let lastDay = '';
-  const msgs = d.messages.map((m) => {
+  const html = d.messages.map((m) => {
     const day = dayOf(m.ts);
     const sep = day !== lastDay ? `<div class="day">${day}</div>` : '';
     lastDay = day;
-    const by = !m.from_me ? '' : m.by_bot ? 'البوت' : 'الموظف';
-    return `${sep}<div class="msg ${m.from_me ? 'out' : ''}">${esc(m.body || `[${m.type}]`)}
-      <div class="meta">${by ? `<span>${by}</span>` : ''}<span>${hhmm(m.ts)}</span>${isFileMsg(m) ? `<button class="btn sm" data-check="${esc(m.id)}">افحص هاد الملف</button>` : ''}</div></div>`;
-  }).join('');
+    return sep + bubble(m);
+  }).join('') || '<div class="conv-empty">ما في رسائل</div>';
   const el = $('#msgs');
   const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-  const changed = patch(el, (msgs || '<div class="empty">ما في رسائل</div>') + d.replies.filter((r) => r.scenario === 'result').map((r) => resultCard({ ...r, chat_id: c.id, name: c.name, phone: c.phone }, false)).join(''));
-  if (changed && (atBottom || el.__first !== openId)) {
+  if (patch(el, html) && (atBottom || el.__chat !== openId)) {
     el.scrollTop = el.scrollHeight;
-    el.__first = openId;
+    el.__chat = openId;
   }
+  patch($('#results'), d.replies.filter((r) => r.scenario === 'result').map(resultPanel).join(''));
 }
 
 function openChat(id) {
   openId = id;
   try { sessionStorage.setItem('chat', id); } catch {}
-  $('#items').__html = null;
+  $('#app').classList.add('show-conv');
   renderList();
-  renderDetail();
-  if (window.innerWidth < 860) $('#detail').scrollIntoView({ behavior: 'smooth' });
+  renderConv();
 }
 
+function closeChat() {
+  openId = null;
+  try { sessionStorage.removeItem('chat'); } catch {}
+  const box = $('#conv');
+  box.dataset.chat = '';
+  box.innerHTML = '<div class="conv-empty"><div class="big">💬</div><b>اختار محادثة</b></div>';
+  $('#app').classList.remove('show-conv');
+  renderList();
+}
+
+let first = true;
 async function refresh() {
   try {
-    renderState(await api('/api/state'));
-    await Promise.all([renderList(), renderDetail()]);
+    const [s, chats] = await Promise.all([api('/api/state'), api(`/api/chats?q=${enc($('#q').value)}`)]);
+    S = s;
+    CHATS = chats;
+    renderBar();
+    // أول مرة: إذا في نتيجة بتستناك منفتح محادثتها
+    if (first && !openId && S.results.length && innerWidth > 860) openId = S.results[0].chat_id;
+    first = false;
+    renderList();
+    await renderConv();
   } catch {
-    patch($('#wa'), '<span class="dot bad"></span>البوت مش شغّال');
+    patch($('#wa'), '<span class="dot bad"></span><span>اللوحة مش قادرة توصل للبوت</span>');
   }
 }
 
 /* ------------------------------ الأزرار ------------------------------ */
+$('#open-settings').innerHTML = icon('gear');
+$('#open-settings').onclick = () => $('#settings').showModal();
+$('#waiting-btn').onclick = () => {
+  filter = 'wait';
+  if (S.results[0]) openChat(S.results[0].chat_id);
+  renderList();
+};
 $('#enabled').onchange = async (e) => {
   await api('/api/settings', { enabled: e.target.checked });
+  toast(e.target.checked ? 'البوت شغّال' : 'البوت موقّف — ما رح يفحص ولا يرد');
   refresh();
 };
 $('#autoSend').onchange = (e) => api('/api/settings', { autoSend: { enabled: e.target.checked } });
-$('#afterMin').onchange = async (e) => {
-  await api('/api/settings', { autoSend: { afterMin: Number(e.target.value) } });
-  toast('انحفظ');
-};
+$('#afterMin').onchange = (e) => api('/api/settings', { autoSend: { afterMin: Number(e.target.value) } });
 $('#save').onclick = async () => {
-  await api('/api/settings', { ackText: $('#ackText').value });
-  toast('انحفظ الرد الآلي');
+  await api('/api/settings', { ackText: $('#ackText').value, autoSend: { enabled: $('#autoSend').checked, afterMin: Number($('#afterMin').value) } });
+  $('#settings').close();
+  toast('انحفظت الإعدادات');
 };
 $('#relink').onclick = async () => {
   if (!confirm('أكيد بدك تفصل الرقم الحالي وتربط رقم جديد؟')) return;
   await api('/api/whatsapp/relink', {});
+  $('#settings').close();
   toast('امسح الكود الجديد لما يطلع');
 };
 let searchTimer;
 $('#q').oninput = () => {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(renderList, 250);
+  searchTimer = setTimeout(refresh, 250);
 };
+$('#lightbox').onclick = () => $('#lightbox').close();
+
+document.addEventListener('keydown', (e) => {
+  // Enter بيبعت الرسالة، و Shift+Enter سطر جديد
+  if (e.target.id === 'compose' && e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    $('#send-msg').click();
+  }
+});
 
 document.addEventListener('click', async (e) => {
-  const t = e.target.closest('button');
+  const t = e.target.closest('button, img[data-zoom]');
   if (!t) return;
-  const card = t.closest('.result');
   const done = (r, msg) => {
     if (r?.error) return toast(r.error, true);
     if (msg) toast(msg);
-    document.activeElement.blur();
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     refresh();
   };
-
+  if (t.dataset.zoom !== undefined && t.tagName === 'IMG') {
+    $('img', $('#lightbox')).src = t.src;
+    return $('#lightbox').showModal();
+  }
+  if (t.dataset.filter) {
+    filter = t.dataset.filter;
+    return renderList();
+  }
   if (t.dataset.open) return openChat(t.dataset.open);
-  if (card && t.hasAttribute('data-send')) return done(await api(`/api/replies/${card.dataset.id}/send`, { text: $('textarea', card).value }), 'عم تنبعت للزبون');
-  if (card && t.hasAttribute('data-dismiss')) return done(await api(`/api/replies/${card.dataset.id}/dismiss`, {}));
+  if (t.hasAttribute('data-back')) return closeChat();
+
+  const card = t.closest('.result');
+  if (card && t.hasAttribute('data-send')) {
+    t.disabled = true;
+    t.textContent = 'عم تنبعت...';
+    return done(await api(`/api/replies/${card.dataset.id}/send`, { text: $('textarea', card).value }), 'عم تنبعت للزبون');
+  }
+  if (card && t.hasAttribute('data-dismiss')) {
+    if (!confirm('تتجاهل نتيجة الفحص؟ ما رح تنبعت للزبون.')) return;
+    return done(await api(`/api/replies/${card.dataset.id}/dismiss`, {}), 'انتجاهلت');
+  }
   if (!openId) return;
   const base = `/api/chats/${enc(openId)}`;
   if (t.dataset.mute) return done(await api(`${base}/mute`, { muted: t.dataset.mute === '1' }), t.dataset.mute === '1' ? 'البوت ساكت مع هالرقم' : 'البوت رجع يشتغل مع هالرقم');
   if (t.hasAttribute('data-reset')) {
-    if (!confirm('مسح سجل البوت لهاد الرقم؟ الرقم بيرجع جديد وبيقدر ينفحص مرة كمان.')) return;
+    if (!confirm('مسح سجل البوت لهاد الرقم؟ بيرجع كأنه جديد وبيقدر ينفحص مرة كمان. المحادثة بتضل.')) return;
     return done(await api(`${base}/reset`, {}), 'انمسح سجل البوت');
   }
   if (t.hasAttribute('data-delete')) {
-    if (!confirm('حذف المحادثة من اللوحة؟ (رسائل الواتس نفسها ما بتنمسح)')) return;
+    if (!confirm('حذف المحادثة من اللوحة؟ رسائل الواتس نفسها ما بتنمسح، وإذا بعت الزبون كمان بترجع تبيّن.')) return;
     await api(`${base}/delete`, {});
-    openId = null;
-    $('#detail').dataset.chat = '';
-    $('#detail').innerHTML = '<div class="empty">اختار محادثة من القائمة</div>';
+    closeChat();
     return done(null, 'انحذفت من اللوحة');
   }
   if (t.dataset.check) {
-    if (!confirm('أفحص هاد الملف؟ النتيجة بتطلعلك تراجعها قبل ما تنبعت.')) return;
-    return done(await api(`${base}/check`, { msgIds: [t.dataset.check] }), 'عم ينفحص... النتيجة بتطلع بعد شوي');
+    if (!confirm('أفحص هاد الملف؟ النتيجة بتطلعلك هون تراجعها قبل ما تنبعت.')) return;
+    return done(await api(`${base}/check`, { msgIds: [t.dataset.check] }), 'عم ينفحص... النتيجة بتطلع خلال دقيقة تقريباً');
   }
   if (t.id === 'send-msg') {
     const text = $('#compose').value.trim();

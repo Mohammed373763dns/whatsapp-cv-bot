@@ -22,10 +22,26 @@ db.db.prepare(`UPDATE replies SET scenario = 'result' WHERE scenario = 'B2'`).ru
 db.db.prepare(`UPDATE replies SET status = 'pending' WHERE status = 'queued' AND scenario = 'result'`).run();
 db.db.prepare(`UPDATE replies SET status = 'dismissed' WHERE status IN ('pending', 'queued', 'handoff') AND scenario != 'result'`).run();
 
+// إشعارات الواتس (e2e_notification...) اللي انخزنت قبل: بتنشال، والأرقام اللي ما ضل إلها ولا رسالة بتختفي من اللوحة
+const real = flow.REAL_TYPES.map((x) => `'${x}'`).join(', ');
+db.db.prepare(`DELETE FROM messages WHERE type NOT IN (${real})`).run();
+db.db.prepare(`DELETE FROM chats WHERE id NOT IN (SELECT chat_id FROM messages) AND id NOT IN (SELECT chat_id FROM replies)`).run();
+
 xai.loadPricing();
 dashboard.start({ wa, sender });
 flow.startAutoSend(sender);
 wa.start();
+
+// متصفح الواتس علق (Runtime.evaluate timed out وغيرها) كان يوقّع البرنامج كله.
+// هلق بنسجل الخطأ وبنعيد تشغيل الواتس بس، والداشبورد والطابور بيضلوا شغالين
+const BROWSER_STUCK = /timed out|Target closed|Session closed|detached|Protocol error|Execution context was destroyed/i;
+function onCrash(err) {
+  const message = err?.message || String(err);
+  console.error('unexpected error:', message);
+  if (BROWSER_STUCK.test(message)) wa._retry(`browser stopped responding: ${message.slice(0, 80)}`);
+}
+process.on('unhandledRejection', onCrash);
+process.on('uncaughtException', onCrash);
 
 async function shutdown() {
   console.log('\nStopping...');

@@ -68,7 +68,7 @@ db.exec(`
 `);
 
 // أعمدة انضافت بعدين (للقواعد القديمة)
-for (const sql of ['ALTER TABLE chats ADD COLUMN muted INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN note TEXT', 'ALTER TABLE replies ADD COLUMN attachment TEXT', 'ALTER TABLE replies ADD COLUMN pace TEXT']) {
+for (const sql of ['ALTER TABLE chats ADD COLUMN muted INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN note TEXT', 'ALTER TABLE replies ADD COLUMN queued_at INTEGER', 'ALTER TABLE replies ADD COLUMN attachment TEXT', 'ALTER TABLE replies ADD COLUMN pace TEXT']) {
   try {
     db.exec(sql);
   } catch {}
@@ -113,7 +113,7 @@ module.exports = {
   },
 
   saveMessage(m) {
-    stmt.addMessage.run(m.id, m.chatId, m.fromMe ? 1 : 0, m.type, m.body || '', m.timestamp, m.byBot ? 1 : 0);
+    stmt.addMessage.run(m.id, m.chatId, m.fromMe ? 1 : 0, m.type, m.body || '', m.timestamp, Number(m.byBot) || 0);
     this.updateChat(m.chatId, m.fromMe ? { last_out: m.timestamp } : { last_in: m.timestamp });
   },
   history: (chatId, limit = 20) => stmt.history.all(chatId, limit),

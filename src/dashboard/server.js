@@ -16,7 +16,7 @@ const mediaUrl = (p) => (p ? `/media/${path.basename(p)}` : null);
 function results() {
   return db.db
     .prepare(
-      `SELECT r.id, r.chat_id, r.text, r.note, r.attachment, r.status, r.created, c.name, c.phone
+      `SELECT r.id, r.chat_id, r.text, r.note, r.attachment, r.status, r.created, r.queued_at, c.name, c.phone
        FROM replies r JOIN chats c ON c.id = r.chat_id
        WHERE r.scenario = 'result' AND r.status IN ('pending', 'queued', 'failed') ORDER BY r.created DESC`
     )
@@ -55,7 +55,7 @@ function chatDetail(id) {
   const chat = chatList().find((c) => c.id === id) || db.getChat(id);
   if (!chat) return { error: 'المحادثة مش موجودة' };
   const replies = db.db
-    .prepare(`SELECT id, scenario, text, note, status, created, attachment FROM replies WHERE chat_id = ? AND status IN ('pending', 'queued', 'failed') ORDER BY id`)
+    .prepare(`SELECT id, scenario, text, note, status, created, queued_at, attachment FROM replies WHERE chat_id = ? AND status IN ('pending', 'queued', 'failed') ORDER BY id`)
     .all(id)
     .map(({ attachment, ...r }) => ({ ...r, image: mediaUrl(attachment) }));
   return { chat: { ...chat, status: botStatus(chat) }, messages: db.history(id, 300), replies };
@@ -64,7 +64,7 @@ function chatDetail(id) {
 async function state(wa, sender) {
   const s = settings.get();
   return {
-    whatsapp: { status: wa.status, account: wa.account || null, qr: wa.qr ? await QRCode.toDataURL(wa.qr, { margin: 1, width: 260 }) : null },
+    whatsapp: { ready: !!wa.ready, status: wa.status, account: wa.account || null, qr: wa.qr ? await QRCode.toDataURL(wa.qr, { margin: 1, width: 260 }) : null },
     enabled: s.enabled,
     autoSend: s.autoSend,
     ackText: s.ackText,

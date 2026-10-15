@@ -10,49 +10,59 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<main class="page">
-  <header class="top">
-    <div>
-      <h1>بوت الفحص المجاني</h1>
-      <div class="wa" id="wa"></div>
+<div class="app" id="app">
+  <header class="bar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">✓</span>
+      <b>بوت الفحص</b>
     </div>
-    <label class="switch big" title="تشغيل / إيقاف البوت لكل الأرقام">
+    <div class="wa" id="wa"></div>
+    <div class="spacer"></div>
+    <button class="pill-btn" id="waiting-btn" hidden></button>
+    <label class="switch" title="تشغيل أو إيقاف البوت لكل الأرقام">
       <input type="checkbox" id="enabled">
-      <span></span>
+      <span class="track"></span>
       <b id="enabled-label"></b>
     </label>
+    <button class="icon-btn" id="open-settings" title="الإعدادات" aria-label="الإعدادات"></button>
   </header>
 
-  <section id="qr"></section>
-
-  <section>
-    <h2>نتائج بانتظارك <span class="count" id="count"></span></h2>
-    <div id="results"></div>
-  </section>
-
-  <section>
-    <h2>المحادثات</h2>
-    <div class="chats">
-      <div class="card list-pane">
-        <input type="search" id="q" placeholder="دوّر على اسم أو رقم">
-        <div class="items" id="items"></div>
+  <div class="body">
+    <aside class="side">
+      <div class="side-top">
+        <input type="search" id="q" placeholder="دوّر على اسم أو رقم" aria-label="بحث">
+        <div class="chips" id="chips"></div>
       </div>
-      <div class="card detail" id="detail">
-        <div class="empty">اختار محادثة من القائمة</div>
-      </div>
-    </div>
-  </section>
+      <div class="items" id="items"></div>
+    </aside>
 
-  <details class="card settings">
-    <summary>الإعدادات</summary>
-    <label>الرد الآلي لما الزبون يبعت سيرته للفحص<textarea id="ackText" rows="2"></textarea></label>
+    <section class="conv" id="conv">
+      <div class="conv-empty">
+        <div class="big">💬</div>
+        <b>اختار محادثة</b>
+        <p>نتائج الفحص اللي بتستناك بتطلع جوا المحادثة، تحت الرسائل.</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="overlay" id="qr" hidden></div>
+
+<dialog id="settings">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><b>الإعدادات</b><button class="icon-btn" value="close" aria-label="سكّر">✕</button></div>
+    <label class="field">الرد الآلي لما الزبون يبعت سيرته للفحص
+      <textarea id="ackText" rows="3"></textarea>
+    </label>
     <label class="check"><input type="checkbox" id="autoSend"> إذا ما بعتت النتيجة، تنبعت لحالها بعد <input type="number" id="afterMin" min="0" max="1440" class="num"> دقيقة</label>
     <div class="row">
-      <button class="btn primary" id="save">حفظ</button>
-      <button class="btn" id="relink">تغيير رقم الواتس</button>
+      <button type="button" class="btn primary" id="save">حفظ</button>
+      <button type="button" class="btn danger" id="relink">تغيير رقم الواتس</button>
     </div>
-  </details>
-</main>
+  </form>
+</dialog>
+
+<dialog id="lightbox"><img alt="صورة درجة الفحص"></dialog>
 <div class="toast" id="toast" hidden></div>
 <script src="app.js"></script>
 </body>

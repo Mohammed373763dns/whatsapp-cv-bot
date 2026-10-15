@@ -47,6 +47,8 @@ class WhatsApp extends EventEmitter {
       webVersionCache: { type: 'local', path: config.CACHE_DIR },
       puppeteer: {
         headless: true,
+        // السيرفر أبطأ من اللابتوب: صفحة الواتس ممكن تاخد وقت لترد (الافتراضي 3 دقايق وكان يوقّع البوت)
+        protocolTimeout: 300e3,
         // على السيرفر: ذاكرة مشتركة صغيرة وما في كرت شاشة
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--no-default-browser-check'],
         ...(config.BROWSER_PATH && { executablePath: config.BROWSER_PATH }),
