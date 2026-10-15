@@ -35,12 +35,12 @@ flow.startAutoSend(sender);
 // الرام ضلت فوق 88% مرتين ورا بعض (10 دقايق) والبوت فاضي: منعيد تشغيل الواتس عشان يفضّي الرام.
 // الجلسة بتضل (ما في كود جديد)، وبياخد تقريباً 20 ثانية
 const { memory } = require('./shared/system');
-const checkBrowser = require('./cv/browser');
+const { busy: checking } = require('./cv/score');
 let highMemory = 0;
 setInterval(() => {
   const m = memory();
   highMemory = m?.percent >= 88 ? highMemory + 1 : 0;
-  if (highMemory < 2 || !wa.ready || sender.queue.length || checkBrowser.busy()) return;
+  if (highMemory < 2 || !wa.ready || sender.queue.length || checking()) return;
   highMemory = 0;
   console.log(`memory ${m.percent}% while idle — restarting WhatsApp to free memory`);
   wa.restart('free memory');

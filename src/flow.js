@@ -11,12 +11,8 @@ const settings = require('./settings');
 const config = require('./config');
 const xai = require('./ai/xai');
 const cv = require('./cv/checker');
-const { checkWithOpti } = require('./cv/opti');
-const { toPdf } = require('./cv/convert');
-const { withBrowser } = require('./cv/browser');
-const { friendlyError, memory } = require('./shared/system');
-// فوق هيك ما منفتح Chrome تاني للفحص (صورة الدرجة)، عشان صفحة الواتس ما تنهار
-const OPTI_MAX_MEMORY_PERCENT = 85;
+const { scoreCv } = require('./cv/score');
+const { friendlyError } = require('./shared/system');
 
 const RECEIVED = 'cv_received';
 // أي رقم وصل لهون (أو أبعد بالنظام القديم) أخد فحصه
@@ -204,18 +200,9 @@ async function runCheck(chatId, msgs, wa, sender, why = '') {
   }
   if (!files.length) return failed(chatId, 'ما قدرت أنزّل الملف — افتحه من الواتس وافحصه إنت');
 
-  // برنامج الفحص (opti) بيعطي الدرجة والصورة، وبيقبل PDF بس — الورد والصور بتتحول PDF أول
-  // بمتصفح منفصل عن الواتس (عشان ما يجمّده)
-  const mem = memory();
-  const lowMemory = mem?.percent >= OPTI_MAX_MEMORY_PERCENT;
-  const optiJob = lowMemory
-    ? Promise.resolve({ error: `ما انعملت لأنه الرام ${mem.percent}% (عشان الواتس ما يعلق)` })
-    : cfg.useOpti
-    ? withBrowser(async (browser) => {
-      const pdf = await toPdf(browser, files);
-      if (!pdf) return { error: 'نوع الملف مش مدعوم' };
-      return checkWithOpti(browser, pdf.buffer, { baseUrl: cfg.optiUrl, filename: pdf.filename, botKey: process.env.OPTI_BOT_KEY });
-    }).catch((err) => ({ error: err.message }))
+  // الدرجة من API موقعك (opti) وكرت الدرجة بيترسم هون — بدون Chrome
+  const optiJob = cfg.useOpti
+    ? scoreCv(files, { baseUrl: cfg.optiUrl, botKey: process.env.OPTI_BOT_KEY }).catch((err) => ({ error: friendlyError(err.message) }))
     : Promise.resolve({ error: 'برنامج الفحص مطفي' });
 
   const [result, opti] = await Promise.all([cv.check({ files }), optiJob]);
