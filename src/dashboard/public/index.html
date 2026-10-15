@@ -16,7 +16,7 @@
       <h1>بوت الفحص المجاني</h1>
       <div class="wa" id="wa"></div>
     </div>
-    <label class="switch big" title="تشغيل / إيقاف البوت">
+    <label class="switch big" title="تشغيل / إيقاف البوت لكل الأرقام">
       <input type="checkbox" id="enabled">
       <span></span>
       <b id="enabled-label"></b>
@@ -31,14 +31,21 @@
   </section>
 
   <section>
-    <h2>آخر الطلبات</h2>
-    <div class="card list" id="recent"></div>
+    <h2>المحادثات</h2>
+    <div class="chats">
+      <div class="card list-pane">
+        <input type="search" id="q" placeholder="دوّر على اسم أو رقم">
+        <div class="items" id="items"></div>
+      </div>
+      <div class="card detail" id="detail">
+        <div class="empty">اختار محادثة من القائمة</div>
+      </div>
+    </div>
   </section>
 
   <details class="card settings">
-    <summary>رسائل البوت والإعدادات</summary>
-    <label>لما الزبون يطلب فحص<textarea id="askText" rows="2"></textarea></label>
-    <label>لما يبعت سيرته<textarea id="ackText" rows="2"></textarea></label>
+    <summary>الإعدادات</summary>
+    <label>الرد الآلي لما الزبون يبعت سيرته للفحص<textarea id="ackText" rows="2"></textarea></label>
     <label class="check"><input type="checkbox" id="autoSend"> إذا ما بعتت النتيجة، تنبعت لحالها بعد <input type="number" id="afterMin" min="0" max="1440" class="num"> دقيقة</label>
     <div class="row">
       <button class="btn primary" id="save">حفظ</button>

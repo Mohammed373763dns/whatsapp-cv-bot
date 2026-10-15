@@ -105,6 +105,12 @@ class SafeSender extends EventEmitter {
       if (!this.queue.length) this.wa.goOffline?.().catch(() => {});
     }, rand(60, 150) * 1000);
   }
+
+  // بيلغي أي رسالة لهاد الرقم لسا ما انبعتت (لما تمسح سجله أو تحذفه من الداشبورد)
+  cancelForChat(chatId) {
+    db.db.prepare(`UPDATE replies SET status = 'dismissed' WHERE chat_id = ? AND status IN ('pending', 'queued')`).run(chatId);
+    this.queue = this.queue.filter((id) => db.getReply(id)?.chat_id !== chatId);
+  }
 }
 
 module.exports = { SafeSender };

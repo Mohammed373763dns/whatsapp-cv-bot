@@ -8,7 +8,6 @@ const DEFAULTS = {
   enabled: true,          // البوت شغّال؟
   // نتيجة الفحص بتستناك تراجعها، وإذا ما بعتها خلال afterMin دقيقة بتنبعت لحالها
   autoSend: { enabled: true, afterMin: 15 },
-  askText: defaults.ASK_TEXT,
   ackText: defaults.ACK_TEXT,
   safety: defaults.SAFETY,
   ai: {

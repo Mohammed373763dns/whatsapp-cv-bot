@@ -1,5 +1,5 @@
 process.env.BOT_DB_FILE = ':memory:';
-process.env.XAI_API_KEY = '';
+process.env.XAI_API_KEY = ''; // بدون AI: القرار بالقاعدة الاحتياطية
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -11,60 +11,99 @@ const sent = [];
 const sender = { enqueue: (id) => sent.push(db.getReply(id)), isBotEcho: () => false };
 const wa = { downloadMedia: async () => null };
 let n = 0;
-const msg = (chatId, type, body = '') => flow.handle({ id: `m${++n}`, chatId, fromMe: false, type, body, timestamp: n, name: 'زبون' }, sender, wa);
+const now = () => db.now();
+const msg = (chatId, type, body = '', fromMe = false) =>
+  flow.handle({ id: `m${++n}`, chatId, fromMe, type, body, timestamp: now() - 100 + n, name: 'زبون', filename: type === 'document' ? body : null }, sender, wa);
 const kinds = () => sent.map((r) => r.scenario);
+const result = (chatId) => db.db.prepare(`SELECT * FROM replies WHERE chat_id = ? AND scenario = 'result'`).get(chatId);
+const tick = async (t, ms) => {
+  t.mock.timers.tick(ms);
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+};
 
 test('wantsCheck', () => {
-  for (const t of ['بدي افحص سيرتي', 'فحص مجاني', 'بدي أفحص سيرتي الذاتية', 'ممكن تقييم للسيرة', 'Check my cv']) assert.ok(flow.wantsCheck(t), t);
+  for (const t of ['بدي افحص سيرتي', 'فحص مجاني', 'ابعتلنا سيرتك الذاتية للفحص', 'ممكن تقييم للسيرة']) assert.ok(flow.wantsCheck(t), t);
   for (const t of ['مرحبا', 'بكم السيرة', 'شكرا']) assert.ok(!flow.wantsCheck(t), t);
 });
 
-test('ignores anything that is not a check request', async () => {
+test('the bot never answers plain talk (the employee does)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   sent.length = 0;
-  await msg('a@c.us', 'chat', 'مرحبا');
-  await msg('a@c.us', 'chat', 'بكم السيرة الذاتية؟');
-  await msg('a@c.us', 'document');
+  await msg('a@c.us', 'chat', 'بدي افحص سيرتي');
+  await msg('a@c.us', 'chat', 'بكم السيرة؟');
+  await tick(t, 60e3);
   assert.deepStrictEqual(kinds(), []);
 });
 
-test('request → ask for CV → file → ack, once per number', async (t) => {
+test('employee asked for the CV → customer sends it → ack + check, once per number', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   sent.length = 0;
-  await msg('b@c.us', 'chat', 'فحص مجاني');
-  assert.deepStrictEqual(kinds(), ['ask']);
-  assert.strictEqual(sent[0].text, settings.get().askText);
-
-  await msg('b@c.us', 'chat', 'بدي افحص'); // طلب تاني قبل الملف: ما بيكرر
-  assert.deepStrictEqual(kinds(), ['ask']);
-
-  await msg('b@c.us', 'document');
-  await msg('b@c.us', 'image'); // صفحة تانية بنفس اللحظة: ما في رد تاني
-  assert.deepStrictEqual(kinds(), ['ask', 'ack']);
+  await msg('b@c.us', 'chat', 'بدي فحص مجاني');
+  await msg('b@c.us', 'chat', 'اهلا وسهلا 🌷 ابعتلنا سيرتك الذاتية للفحص', true);
+  await msg('b@c.us', 'document', 'cv.pdf');
+  assert.deepStrictEqual(kinds(), [], 'waits for the customer to finish');
+  await tick(t, 21e3);
+  assert.deepStrictEqual(kinds(), ['ack']);
   assert.strictEqual(db.getChat('b@c.us').stage, flow.RECEIVED);
+  // الملف ما نزل (wa وهمي) ← نتيجة فاضية بتستناك بالداشبورد
+  assert.strictEqual(result('b@c.us').status, 'pending');
 
-  t.mock.timers.tick(10000);
-  await new Promise((r) => setImmediate(r));
-  // الملف ما نزل (wa وهمي) ← نتيجة فاضية بتستناك بالداشبورد، ما بتنبعت للزبون
-  const result = db.db.prepare(`SELECT * FROM replies WHERE chat_id = 'b@c.us' AND scenario = 'result'`).get();
-  assert.strictEqual(result.status, 'pending');
-  assert.ok(result.note);
-
-  await msg('b@c.us', 'chat', 'بدي افحص سيرة تانية');
-  await msg('b@c.us', 'document');
-  assert.deepStrictEqual(kinds(), ['ask', 'ack'], 'once per number');
+  await msg('b@c.us', 'document', 'cv2.pdf');
+  await tick(t, 21e3);
+  assert.deepStrictEqual(kinds(), ['ack'], 'once per number');
 });
 
-test('file with the request in its caption is checked right away', async (t) => {
+test('a file with no check context is ignored', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   sent.length = 0;
-  await msg('c@c.us', 'document', 'بدي افحص سيرتي');
-  assert.deepStrictEqual(kinds(), ['ack']);
+  await msg('c@c.us', 'chat', 'مرحبا هاي الشهادة');
+  await msg('c@c.us', 'document', 'certificate.pdf');
+  await tick(t, 21e3);
+  assert.deepStrictEqual(kinds(), []);
+  assert.ok(!result('c@c.us'));
+});
+
+test('several CVs → the last one is checked; CV pages as images → all images', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const checked = [];
+  const wa2 = { downloadMedia: async (id) => (checked.push(id), null) };
+  const send = (chatId, type, body = '', fromMe = false) =>
+    flow.handle({ id: `m${++n}`, chatId, fromMe, type, body, timestamp: now() - 100 + n, name: 'زبون' }, sender, wa2);
+
+  await send('d@c.us', 'chat', 'بدي افحص سيرتي');
+  await send('d@c.us', 'document', 'old.pdf');
+  await send('d@c.us', 'document', 'new.pdf');
+  await send('d@c.us', 'chat', 'افحصوا اخر وحدة');
+  await tick(t, 21e3);
+  assert.deepStrictEqual(checked, [`m${n - 1}`]);
+
+  checked.length = 0;
+  await send('e@c.us', 'chat', 'فحص مجاني');
+  await send('e@c.us', 'image');
+  await send('e@c.us', 'image');
+  await tick(t, 21e3);
+  assert.deepStrictEqual(checked, [`m${n - 1}`, `m${n}`]);
+});
+
+test('muted number or bot off → nothing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  sent.length = 0;
+  db.saveChat({ id: 'f@c.us' });
+  db.updateChat('f@c.us', { muted: 1 });
+  await msg('f@c.us', 'chat', 'بدي افحص');
+  await msg('f@c.us', 'document', 'cv.pdf');
+  settings.update({ enabled: false });
+  await msg('g@c.us', 'chat', 'بدي افحص');
+  await msg('g@c.us', 'document', 'cv.pdf');
+  await tick(t, 21e3);
+  assert.deepStrictEqual(kinds(), []);
+  settings.update({ enabled: true });
 });
 
 test('result waits for review, then sends itself after the delay', () => {
-  db.saveChat({ id: 'e@c.us' });
+  db.saveChat({ id: 'h@c.us' });
   const add = (text, ageMin) => {
-    const id = db.addReply({ chatId: 'e@c.us', scenario: 'result', text, source: 'bot' });
+    const id = db.addReply({ chatId: 'h@c.us', scenario: 'result', text, source: 'bot' });
     db.db.prepare('UPDATE replies SET created = ? WHERE id = ?').run(db.now() - ageMin * 60, id);
     return id;
   };
@@ -72,7 +111,6 @@ test('result waits for review, then sends itself after the delay', () => {
   const due = add('ملاحظات', 16);
   const empty = add('', 30); // فحص فاشل: بدها إنت
   const ancient = add('ملاحظات', 15 + 4 * 60); // البوت كان طافي: ما بتنبعت لحالها
-  sent.length = 0;
   const ids = flow.sendDueResults(sender);
   assert.ok(ids.includes(due));
   for (const id of [fresh, empty, ancient]) assert.ok(!ids.includes(id));
@@ -80,12 +118,4 @@ test('result waits for review, then sends itself after the delay', () => {
   settings.update({ autoSend: { enabled: false } });
   assert.deepStrictEqual(flow.sendDueResults(sender), []);
   settings.update({ autoSend: { enabled: true } });
-});
-
-test('bot off → no replies', async () => {
-  settings.update({ enabled: false });
-  sent.length = 0;
-  await msg('d@c.us', 'chat', 'فحص مجاني');
-  assert.deepStrictEqual(kinds(), []);
-  settings.update({ enabled: true });
 });

@@ -1,4 +1,4 @@
-// الداشبورد: سيرفر محلي بس (127.0.0.1) — صفحة وحدة + API صغير
+// الداشبورد: صفحة وحدة + API صغير. على اللابتوب محلي بس، وعلى Railway بكلمة سر
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -10,6 +10,8 @@ const settings = require('../settings');
 const { DASHBOARD_PORT } = require('../config/bot');
 const flow = require('../flow');
 
+const mediaUrl = (p) => (p ? `/media/${path.basename(p)}` : null);
+
 // نتائج الفحص اللي بتستنى تبعتها (أو فشلت وبدها إنت)
 function results() {
   return db.db
@@ -19,21 +21,44 @@ function results() {
        WHERE r.scenario = 'result' AND r.status IN ('pending', 'queued', 'failed') ORDER BY r.created DESC`
     )
     .all()
-    .map((r) => ({ ...r, image: r.attachment ? `/media/${path.basename(r.attachment)}` : null, attachment: undefined }));
+    .map(({ attachment, ...r }) => ({ ...r, image: mediaUrl(attachment) }));
 }
 
-// آخر الأرقام اللي طلبت فحص
-function recent() {
+// حالة الرقم عند البوت
+function botStatus(c) {
+  if (c.muted) return 'muted';
+  if (c.result_sent) return 'sent';
+  if (flow.usedCheck(c)) return 'checked';
+  return 'new';
+}
+
+// كل الأرقام والمحادثات (الأحدث فوق)
+function chatList(q = '') {
+  const like = `%${q.trim()}%`;
   return db.db
     .prepare(
-      `SELECT id, name, phone, stage, last_in FROM chats
-       WHERE stage IN ('${flow.ASKED}', '${flow.RECEIVED}', 'checked') ORDER BY COALESCE(last_in, 0) DESC LIMIT 30`
+      `SELECT c.id, c.name, c.phone, c.stage, c.muted, c.last_in, c.last_out,
+         (SELECT body FROM messages m WHERE m.chat_id = c.id ORDER BY ts DESC LIMIT 1) AS last_body,
+         (SELECT from_me FROM messages m WHERE m.chat_id = c.id ORDER BY ts DESC LIMIT 1) AS last_from_me,
+         EXISTS (SELECT 1 FROM replies r WHERE r.chat_id = c.id AND r.scenario = 'result' AND r.status = 'sent') AS result_sent,
+         EXISTS (SELECT 1 FROM replies r WHERE r.chat_id = c.id AND r.scenario = 'result' AND r.status IN ('pending', 'failed')) AS waiting
+       FROM chats c
+       WHERE EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = c.id)
+         AND (? = '%%' OR c.name LIKE ? OR c.phone LIKE ?)
+       ORDER BY MAX(COALESCE(c.last_in, 0), COALESCE(c.last_out, 0)) DESC LIMIT 300`
     )
-    .all()
-    .map((c) => ({
-      ...c,
-      sent: !!db.db.prepare(`SELECT 1 FROM replies WHERE chat_id = ? AND scenario = 'result' AND status = 'sent'`).get(c.id),
-    }));
+    .all(like, like, like)
+    .map((c) => ({ ...c, status: botStatus(c) }));
+}
+
+function chatDetail(id) {
+  const chat = chatList().find((c) => c.id === id) || db.getChat(id);
+  if (!chat) return { error: 'المحادثة مش موجودة' };
+  const replies = db.db
+    .prepare(`SELECT id, scenario, text, note, status, created, attachment FROM replies WHERE chat_id = ? AND status IN ('pending', 'queued', 'failed') ORDER BY id`)
+    .all(id)
+    .map(({ attachment, ...r }) => ({ ...r, image: mediaUrl(attachment) }));
+  return { chat: { ...chat, status: botStatus(chat) }, messages: db.history(id, 300), replies };
 }
 
 async function state(wa, sender) {
@@ -42,11 +67,9 @@ async function state(wa, sender) {
     whatsapp: { status: wa.status, account: wa.account || null, qr: wa.qr ? await QRCode.toDataURL(wa.qr, { margin: 1, width: 260 }) : null },
     enabled: s.enabled,
     autoSend: s.autoSend,
-    askText: s.askText,
     ackText: s.ackText,
     queue: sender.queue.length,
     results: results(),
-    recent: recent(),
   };
 }
 
@@ -88,13 +111,13 @@ function start({ wa, sender }) {
     'POST /api/settings': (b) => {
       const patch = {};
       if (typeof b.enabled === 'boolean') patch.enabled = b.enabled;
+      if (typeof b.ackText === 'string' && b.ackText.trim()) patch.ackText = b.ackText.trim();
       if (b.autoSend) {
         patch.autoSend = {};
         if (typeof b.autoSend.enabled === 'boolean') patch.autoSend.enabled = b.autoSend.enabled;
         const min = Number(b.autoSend.afterMin);
         if (Number.isFinite(min) && min >= 0 && min <= 1440) patch.autoSend.afterMin = Math.round(min);
       }
-      for (const k of ['askText', 'ackText']) if (typeof b[k] === 'string' && b[k].trim()) patch[k] = b[k].trim();
       settings.update(patch);
       return { ok: true };
     },
@@ -104,7 +127,38 @@ function start({ wa, sender }) {
     },
   };
 
+  const chatId = (m) => decodeURIComponent(m[1]);
   const actions = [
+    [/^GET \/api\/chats$/, (m, b, q) => chatList(q.get('q') || '')],
+    [/^GET \/api\/chats\/([^/]+)$/, (m) => chatDetail(chatId(m))],
+    // مسح سجل البوت: الرقم بيرجع جديد (بيقدر ينفحص مرة كمان)، والمحادثة نفسها بتضل
+    [/^POST \/api\/chats\/([^/]+)\/reset$/, (m) => {
+      const id = chatId(m);
+      sender.cancelForChat(id);
+      db.updateChat(id, { stage: 'new' });
+      db.db.prepare('DELETE FROM replies WHERE chat_id = ?').run(id);
+      return { ok: true };
+    }],
+    // حذف المحادثة من اللوحة (رسائل الواتس نفسها ما بتنمسح). لو الزبون بعت كمان بترجع تبيّن
+    [/^POST \/api\/chats\/([^/]+)\/delete$/, (m) => {
+      const id = chatId(m);
+      sender.cancelForChat(id);
+      for (const t of ['messages', 'replies']) db.db.prepare(`DELETE FROM ${t} WHERE chat_id = ?`).run(id);
+      db.db.prepare('DELETE FROM chats WHERE id = ?').run(id);
+      return { ok: true };
+    }],
+    [/^POST \/api\/chats\/([^/]+)\/mute$/, (m, b) => {
+      db.updateChat(chatId(m), { muted: b.muted ? 1 : 0 });
+      return { ok: true };
+    }],
+    [/^POST \/api\/chats\/([^/]+)\/check$/, (m, b) => flow.checkNow(chatId(m), [].concat(b.msgIds || []), sender, wa)],
+    // رسالة منك من الداشبورد (بتمرق من الإرسال الآمن)
+    [/^POST \/api\/chats\/([^/]+)\/send$/, (m, b) => {
+      const text = String(b.text || '').trim();
+      if (!text) return { error: 'اكتب الرسالة' };
+      sender.enqueue(db.addReply({ chatId: chatId(m), scenario: 'manual', text, source: 'manual' }));
+      return { ok: true };
+    }],
     [/^POST \/api\/replies\/(\d+)\/send$/, (m, b) => {
       const r = db.getReply(Number(m[1]));
       if (!r) return { error: 'not found' };
@@ -118,15 +172,11 @@ function start({ wa, sender }) {
       db.setReplyStatus(Number(m[1]), 'dismissed');
       return { ok: true };
     }],
-    // الرقم بيرجع يقدر يطلب فحص كمان مرة
-    [/^POST \/api\/chats\/([^/]+)\/reset$/, (m) => {
-      db.updateChat(decodeURIComponent(m[1]), { stage: 'new' });
-      return { ok: true };
-    }],
   ];
 
   const server = http.createServer(async (req, res) => {
-    const key = `${req.method} ${req.url.split('?')[0]}`;
+    const url = new URL(req.url, 'http://x');
+    const key = `${req.method} ${url.pathname}`;
     // فحص صحة لـ Railway (بدون كلمة سر وبدون أي بيانات)
     if (key === 'GET /health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -158,7 +208,7 @@ function start({ wa, sender }) {
       if (routes[key]) result = await routes[key](body);
       else {
         const hit = actions.find(([re]) => re.test(key));
-        if (hit) result = await hit[1](key.match(hit[0]), body);
+        if (hit) result = await hit[1](key.match(hit[0]), body, url.searchParams);
       }
       if (result === undefined) {
         res.writeHead(404);

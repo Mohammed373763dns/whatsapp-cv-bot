@@ -68,7 +68,7 @@ db.exec(`
 `);
 
 // أعمدة انضافت بعدين (للقواعد القديمة)
-for (const sql of ['ALTER TABLE replies ADD COLUMN note TEXT', 'ALTER TABLE replies ADD COLUMN attachment TEXT', 'ALTER TABLE replies ADD COLUMN pace TEXT']) {
+for (const sql of ['ALTER TABLE chats ADD COLUMN muted INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN note TEXT', 'ALTER TABLE replies ADD COLUMN attachment TEXT', 'ALTER TABLE replies ADD COLUMN pace TEXT']) {
   try {
     db.exec(sql);
   } catch {}
