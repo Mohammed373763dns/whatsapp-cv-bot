@@ -5,8 +5,11 @@ const config = require('../config');
 const { CHROMIUM_ARGS } = require('../shared/system');
 
 let chain = Promise.resolve(); // فحص واحد بالمرة عشان الرام
+let running = 0;
+const busy = () => running > 0;
 
 function withBrowser(fn) {
+  running++;
   const run = chain.then(async () => {
     const puppeteer = require('puppeteer');
     const browser = await puppeteer.launch({
@@ -22,7 +25,8 @@ function withBrowser(fn) {
     }
   });
   chain = run.catch(() => {});
+  run.finally(() => running--).catch(() => {});
   return run;
 }
 
-module.exports = { withBrowser };
+module.exports = { withBrowser, busy };

@@ -14,7 +14,9 @@ const cv = require('./cv/checker');
 const { checkWithOpti } = require('./cv/opti');
 const { toPdf } = require('./cv/convert');
 const { withBrowser } = require('./cv/browser');
-const { friendlyError } = require('./shared/system');
+const { friendlyError, memory } = require('./shared/system');
+// فوق هيك ما منفتح Chrome تاني للفحص (صورة الدرجة)، عشان صفحة الواتس ما تنهار
+const OPTI_MAX_MEMORY_PERCENT = 85;
 
 const RECEIVED = 'cv_received';
 // أي رقم وصل لهون (أو أبعد بالنظام القديم) أخد فحصه
@@ -204,7 +206,11 @@ async function runCheck(chatId, msgs, wa, sender, why = '') {
 
   // برنامج الفحص (opti) بيعطي الدرجة والصورة، وبيقبل PDF بس — الورد والصور بتتحول PDF أول
   // بمتصفح منفصل عن الواتس (عشان ما يجمّده)
-  const optiJob = cfg.useOpti
+  const mem = memory();
+  const lowMemory = mem?.percent >= OPTI_MAX_MEMORY_PERCENT;
+  const optiJob = lowMemory
+    ? Promise.resolve({ error: `ما انعملت لأنه الرام ${mem.percent}% (عشان الواتس ما يعلق)` })
+    : cfg.useOpti
     ? withBrowser(async (browser) => {
       const pdf = await toPdf(browser, files);
       if (!pdf) return { error: 'نوع الملف مش مدعوم' };

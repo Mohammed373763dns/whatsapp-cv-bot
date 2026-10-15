@@ -31,6 +31,20 @@ require('./shared/system').startMemoryLog();
 xai.loadPricing();
 dashboard.start({ wa, sender });
 flow.startAutoSend(sender);
+
+// الرام ضلت فوق 88% مرتين ورا بعض (10 دقايق) والبوت فاضي: منعيد تشغيل الواتس عشان يفضّي الرام.
+// الجلسة بتضل (ما في كود جديد)، وبياخد تقريباً 20 ثانية
+const { memory } = require('./shared/system');
+const checkBrowser = require('./cv/browser');
+let highMemory = 0;
+setInterval(() => {
+  const m = memory();
+  highMemory = m?.percent >= 88 ? highMemory + 1 : 0;
+  if (highMemory < 2 || !wa.ready || sender.queue.length || checkBrowser.busy()) return;
+  highMemory = 0;
+  console.log(`memory ${m.percent}% while idle — restarting WhatsApp to free memory`);
+  wa.restart('free memory');
+}, 5 * 60e3).unref();
 wa.start();
 
 // متصفح الواتس علق (Runtime.evaluate timed out وغيرها) كان يوقّع البرنامج كله.

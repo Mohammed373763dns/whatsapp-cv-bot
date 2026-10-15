@@ -124,6 +124,17 @@ class WhatsApp extends EventEmitter {
     }, delay);
   }
 
+  // إعادة تشغيل عادية (مش فشل): بدون انتظار متزايد
+  async restart(reason) {
+    if (this._retrying || this._relinking) return;
+    this._retrying = true;
+    clearTimeout(this._watchdog);
+    this._setStatus(`restarting: ${reason}`);
+    await this.stop();
+    this._retrying = false;
+    return this.start();
+  }
+
   // تسكير المتصفح. إذا علق (صفحة جامدة) ما منستنى للأبد: بعد 15 ثانية منقتله
   async stop() {
     this.ready = false;

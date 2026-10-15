@@ -27,7 +27,7 @@ function watchBrowser(browser, label) {
     let last = 0;
     proc.stderr.on('data', (chunk) => {
       for (const line of String(chunk).split('\n')) {
-        if (!CRASH_LINE.test(line) || Date.now() - last < 200) continue;
+        if (!CRASH_LINE.test(line) || /non-fatal|fburl.com/i.test(line) || Date.now() - last < 200) continue;
         last = Date.now();
         console.error(`[${label} chrome] ${line.trim().slice(0, 300)}`);
       }

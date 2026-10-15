@@ -95,7 +95,7 @@ const FILTERS = [
   ['muted', 'ساكت', (c) => c.status === 'muted'],
 ];
 
-const WA = { ready: 'متصل', qr: 'بانتظار مسح الكود', starting: 'عم يشتغل...', syncing: 'عم يزامن...', logging_out: 'عم يسجل خروج...', retrying: 'عم يعيد الاتصال...', stopped: 'مطفي' };
+const WA = { ready: 'متصل', qr: 'بانتظار مسح الكود', starting: 'عم يشتغل...', syncing: 'عم يزامن...', logging_out: 'عم يسجل خروج...', retrying: 'عم يعيد الاتصال...', restarting: 'عم يعيد التشغيل...', stopped: 'مطفي' };
 
 function renderBar() {
   const key = (S.whatsapp.status || '').split(':')[0];
