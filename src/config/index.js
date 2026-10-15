@@ -1,4 +1,5 @@
 // إعدادات البوت — عدّلها حسب حاجتك
+const fs = require('fs');
 const path = require('path');
 
 // على Railway: STORAGE_DIR = مسار الـVolume، فجلسة الواتس وقاعدة البيانات بيضلوا بعد كل تحديث
@@ -24,7 +25,20 @@ module.exports = {
   // جلسة الواتس (عشان ما تمسح الـQR كل مرة)
   AUTH_DIR: STORAGE ? path.join(STORAGE, "auth") : ".wwebjs_auth",
   CACHE_DIR: STORAGE ? path.join(STORAGE, "cache") : ".wwebjs_cache",
-  // مسار المتصفح: على السيرفر Chromium (من الـDockerfile)، وعلى اللابتوب Edge
-  BROWSER_PATH: process.env.PUPPETEER_EXECUTABLE_PATH
-    || (process.platform === "win32" ? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" : null),
+  // مسار المتصفح: على السيرفر Google Chrome (من الـDockerfile)، وعلى اللابتوب Edge
+  BROWSER_PATH: findBrowser(),
 };
+
+// أول متصفح موجود فعلاً. إذا المسار بالإعدادات غلط ما بيوقف البوت: بيدور بالأماكن المعروفة
+function findBrowser() {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    ...(process.platform === "win32"
+      ? ["C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"]
+      : ["/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]),
+  ].filter(Boolean);
+  const found = candidates.find((p) => fs.existsSync(p));
+  if (!found) console.error(`No browser found (looked in: ${candidates.join(", ")})`);
+  else if (process.env.PUPPETEER_EXECUTABLE_PATH && found !== process.env.PUPPETEER_EXECUTABLE_PATH) console.error(`Browser not at ${process.env.PUPPETEER_EXECUTABLE_PATH}, using ${found}`);
+  return found || null;
+}

@@ -19,9 +19,9 @@ RUN apt-get update \
       libreoffice-writer-nogui \
       fonts-noto-core fonts-liberation fonts-dejavu-core \
       tzdata \
- && apt-get purge -y wget gnupg \
- && apt-get autoremove -y \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && google-chrome-stable --version
+# (ممنوع نشيل wget: google-chrome-stable معتمد عليه وبينشال معه — صارت مرة)
 
 WORKDIR /app
 
