@@ -7,7 +7,7 @@ const path = require('path');
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const config = require('../config');
-const { CHROMIUM_ARGS, memoryText } = require('../shared/system');
+const { CHROMIUM_ARGS, memoryText, watchBrowser } = require('../shared/system');
 
 const READY_FALLBACK_SEC = 30;
 const STARTUP_TIMEOUT_MS = 4 * 60e3; // إذا ما اتصل خلال 4 دقايق (وما في QR بيستنى) منعيد المحاولة
@@ -203,6 +203,10 @@ class WhatsApp extends EventEmitter {
 
   async _attach() {
     const page = this.client.pupPage;
+    if (!this.client.pupBrowser.__watched) {
+      this.client.pupBrowser.__watched = true;
+      watchBrowser(this.client.pupBrowser, 'whatsapp');
+    }
 
     // أخطاء جوا صفحة الواتس: منخزن آخر 50 (بدون ما نعبي الـlogs)، ومنطبعها بس لما إرسال يفشل
     if (!page.__botErrors) {

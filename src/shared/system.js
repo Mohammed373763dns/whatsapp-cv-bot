@@ -9,15 +9,32 @@ const CHROMIUM_ARGS = [
   '--disable-gpu',
   '--no-first-run',
   '--no-default-browser-check',
-  '--no-zygote',
   '--disable-extensions',
-  '--disable-background-networking',
   '--disable-default-apps',
   '--disable-sync',
   '--mute-audio',
-  '--renderer-process-limit=2',
-  '--disable-features=site-per-process,Translate,MediaRouter,OptimizationHints',
+  '--disable-features=Translate,MediaRouter,OptimizationHints',
+  // Chrome بيكتب سبب الانهيار هون، ومنطبع منه بس السطور المهمة (watchBrowser)
+  '--enable-logging=stderr',
+  '--v=0',
 ];
+
+// سطور Chrome اللي بتشرح ليش انهارت الصفحة (الباقي ضجيج)
+const CRASH_LINE = /FATAL|crash|Out of memory|OOM|Received signal|Check failed|shared memory|shm|renderer.*(exit|kill|gone)|GPU process/i;
+function watchBrowser(browser, label) {
+  const proc = browser?.process?.();
+  if (proc?.stderr) {
+    let last = 0;
+    proc.stderr.on('data', (chunk) => {
+      for (const line of String(chunk).split('\n')) {
+        if (!CRASH_LINE.test(line) || Date.now() - last < 200) continue;
+        last = Date.now();
+        console.error(`[${label} chrome] ${line.trim().slice(0, 300)}`);
+      }
+    });
+  }
+  browser.version().then((v) => console.log(`${label} browser: ${v}`)).catch(() => {});
+}
 
 const read = (f) => {
   try {
@@ -58,4 +75,4 @@ function friendlyError(message) {
   return m.slice(0, 200);
 }
 
-module.exports = { CHROMIUM_ARGS, memory, memoryText, startMemoryLog, friendlyError };
+module.exports = { CHROMIUM_ARGS, watchBrowser, memory, memoryText, startMemoryLog, friendlyError };
