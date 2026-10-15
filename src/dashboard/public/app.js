@@ -38,6 +38,19 @@ function patch(el, html) {
   return true;
 }
 
+// نافذة تأكيد مصممة مع اللوحة (بدل confirm تبع المتصفح)
+function ask(title, text, ok = 'تأكيد', danger = false) {
+  const d = $('#confirm');
+  $('#confirm-title').textContent = title;
+  $('#confirm-text').textContent = text;
+  const btn = $('#confirm-ok');
+  btn.textContent = ok;
+  btn.className = `btn ${danger ? 'danger-solid' : 'primary'}`;
+  d.returnValue = '';
+  d.showModal();
+  return new Promise((resolve) => d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true }));
+}
+
 /* ------------------------------ تنسيق ------------------------------ */
 // الأرقام بتنكتب من الشمال لليمين حتى جوا صفحة عربية (+972 56-830-7434 مش 56-830-7434 972+)
 const looksLikePhone = (s) => /^[+\d][\d\s\-()]+$/.test(String(s || '').trim());
@@ -109,10 +122,11 @@ function renderBar() {
 
 function renderList() {
   const count = (fn) => CHATS.filter(fn).length;
-  patch($('#chips'), FILTERS.map(([id, label, fn]) => {
-    const n = count(fn);
-    return `<button class="chip ${filter === id ? 'on' : ''}" data-filter="${id}">${label}${id !== 'all' && n ? ` ${n}` : ''}</button>`;
-  }).join(''));
+  const sel = $('#filter');
+  if (document.activeElement !== sel) {
+    patch(sel, FILTERS.map(([id, label, fn]) => `<option value="${id}">${label} (${count(fn)})</option>`).join(''));
+    sel.value = filter;
+  }
   const fn = FILTERS.find((f) => f[0] === filter)[2];
   const list = CHATS.filter(fn);
   patch($('#items'), list.length
@@ -137,6 +151,18 @@ function bubble(m) {
   return `<div class="msg ${cls}"><div class="txt">${esc(m.body || '')}</div>`
     + (file ? `<div class="act"><button class="link-btn" data-check="${esc(m.id)}">افحص هاد الملف</button></div>` : '')
     + `<div class="meta">${src ? `<span class="src">${src}</span>` : ''}<span>${hhmm(m.ts)}</span></div></div>`;
+}
+
+// رد آلي أو رسالة منك لسا ما انبعتت: بتبيّن بالمحادثة مع حالتها
+function outgoing(r) {
+  const failed = r.status === 'failed';
+  const src = r.scenario === 'ack' ? 'البوت · الرد الآلي' : 'إنت (من اللوحة)';
+  let state = '⏳ بتستنى دورها';
+  if (r.status === 'queued') state = !S.whatsapp.ready ? '⏳ بتستنى الواتس يتصل' : `⏳ عم تنبعت${r.queued_at && now() - r.queued_at > 60 ? ` (صرلها ${mins(now() - r.queued_at)})` : ''}`;
+  if (failed) state = 'ما انبعتت';
+  return `<div class="msg out ${r.scenario === 'ack' ? 'bot' : ''} ${failed ? 'failed' : 'pending'}"><div class="txt">${esc(r.text)}</div>`
+    + (failed ? `<div class="act"><button class="link-btn" data-retry="${r.id}">حاول مرة تانية</button></div>` : '')
+    + `<div class="meta"><span class="src">${src}</span><span class="state">${state}</span></div></div>`;
 }
 
 function resultPanel(r) {
@@ -191,14 +217,16 @@ async function renderConv() {
     const sep = day !== lastDay ? `<div class="day">${day}</div>` : '';
     lastDay = day;
     return sep + bubble(m);
-  }).join('') || '<div class="conv-empty">ما في رسائل</div>';
+  }).join('') + d.replies.filter((r) => r.scenario !== 'result').map(outgoing).join('') || '<div class="conv-empty">ما في رسائل</div>';
   const el = $('#msgs');
   const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-  if (patch(el, html) && (atBottom || el.__chat !== openId)) {
+  // لوحة النتيجة أول: هي بتاخد مكان من الرسائل، فالسكرول لتحت لازم يصير بعدها
+  const resultsChanged = patch($('#results'), d.replies.filter((r) => r.scenario === 'result').map(resultPanel).join(''));
+  const msgsChanged = patch(el, html);
+  if ((msgsChanged || resultsChanged) && (atBottom || el.__chat !== openId)) {
     el.scrollTop = el.scrollHeight;
     el.__chat = openId;
   }
-  patch($('#results'), d.replies.filter((r) => r.scenario === 'result').map(resultPanel).join(''));
 }
 
 function openChat(id) {
@@ -257,7 +285,7 @@ $('#save').onclick = async () => {
   toast('انحفظت الإعدادات');
 };
 $('#relink').onclick = async () => {
-  if (!confirm('أكيد بدك تفصل الرقم الحالي وتربط رقم جديد؟')) return;
+  if (!(await ask('تغيير رقم الواتس', 'الرقم الحالي بينفصل عن البوت، وبيطلعلك كود جديد تمسحه من الجوال التاني.', 'افصل الرقم', true))) return;
   await api('/api/whatsapp/relink', {});
   $('#settings').close();
   toast('امسح الكود الجديد لما يطلع');
@@ -268,6 +296,11 @@ $('#q').oninput = () => {
   searchTimer = setTimeout(refresh, 250);
 };
 $('#lightbox').onclick = () => $('#lightbox').close();
+$('#filter').onchange = (e) => {
+  filter = e.target.value;
+  e.target.blur();
+  renderList();
+};
 
 document.addEventListener('keydown', (e) => {
   // Enter بيبعت الرسالة، و Shift+Enter سطر جديد
@@ -290,38 +323,36 @@ document.addEventListener('click', async (e) => {
     $('img', $('#lightbox')).src = t.src;
     return $('#lightbox').showModal();
   }
-  if (t.dataset.filter) {
-    filter = t.dataset.filter;
-    return renderList();
-  }
+  // (الفلتر صار قائمة منسدلة)
   if (t.dataset.open) return openChat(t.dataset.open);
   if (t.hasAttribute('data-back')) return closeChat();
 
   const card = t.closest('.result');
+  if (t.dataset.retry) return done(await api(`/api/replies/${t.dataset.retry}/send`, {}), 'عم تنبعت مرة كمان');
   if (card && t.hasAttribute('data-send')) {
     t.disabled = true;
     t.textContent = 'عم تنبعت...';
     return done(await api(`/api/replies/${card.dataset.id}/send`, { text: $('textarea', card).value }), 'عم تنبعت للزبون');
   }
   if (card && t.hasAttribute('data-dismiss')) {
-    if (!confirm('تتجاهل نتيجة الفحص؟ ما رح تنبعت للزبون.')) return;
+    if (!(await ask('تجاهل نتيجة الفحص', 'النتيجة ما رح تنبعت للزبون. بتقدر تفحص الملف مرة تانية من زر "افحص هاد الملف".', 'تجاهل', true))) return;
     return done(await api(`/api/replies/${card.dataset.id}/dismiss`, {}), 'انتجاهلت');
   }
   if (!openId) return;
   const base = `/api/chats/${enc(openId)}`;
   if (t.dataset.mute) return done(await api(`${base}/mute`, { muted: t.dataset.mute === '1' }), t.dataset.mute === '1' ? 'البوت ساكت مع هالرقم' : 'البوت رجع يشتغل مع هالرقم');
   if (t.hasAttribute('data-reset')) {
-    if (!confirm('مسح سجل البوت لهاد الرقم؟ بيرجع كأنه جديد وبيقدر ينفحص مرة كمان. المحادثة بتضل.')) return;
+    if (!(await ask('مسح سجل البوت', 'الرقم بيرجع كأنه جديد وبيقدر ينفحص مرة كمان. الملفات اللي بعتها قبل ما بتنحسب، والبوت بيستنى سيرة جديدة. المحادثة نفسها بتضل.', 'امسح السجل'))) return;
     return done(await api(`${base}/reset`, {}), 'انمسح سجل البوت');
   }
   if (t.hasAttribute('data-delete')) {
-    if (!confirm('حذف المحادثة من اللوحة؟ رسائل الواتس نفسها ما بتنمسح، وإذا بعت الزبون كمان بترجع تبيّن.')) return;
+    if (!(await ask('حذف المحادثة من اللوحة', 'بتنحذف من اللوحة بس. رسائل الواتس نفسها ما بتنمسح، وإذا بعت الزبون كمان بترجع تبيّن.', 'احذف', true))) return;
     await api(`${base}/delete`, {});
     closeChat();
     return done(null, 'انحذفت من اللوحة');
   }
   if (t.dataset.check) {
-    if (!confirm('أفحص هاد الملف؟ النتيجة بتطلعلك هون تراجعها قبل ما تنبعت.')) return;
+    if (!(await ask('فحص الملف', 'البوت بيفحص هاد الملف بدون ما يبعت الرد الآلي، والنتيجة بتطلعلك هون تراجعها قبل ما تنبعت.', 'افحص'))) return;
     return done(await api(`${base}/check`, { msgIds: [t.dataset.check] }), 'عم ينفحص... النتيجة بتطلع خلال دقيقة تقريباً');
   }
   if (t.id === 'send-msg') {

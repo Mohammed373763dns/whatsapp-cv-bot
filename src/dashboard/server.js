@@ -135,7 +135,8 @@ function start({ wa, sender }) {
     [/^POST \/api\/chats\/([^/]+)\/reset$/, (m) => {
       const id = chatId(m);
       sender.cancelForChat(id);
-      db.updateChat(id, { stage: 'new' });
+      // الملفات اللي قبل المسح ما بتنحسب: البوت بيستنى سيرة جديدة
+      db.updateChat(id, { stage: 'new', files_since: db.now() });
       db.db.prepare('DELETE FROM replies WHERE chat_id = ?').run(id);
       return { ok: true };
     }],

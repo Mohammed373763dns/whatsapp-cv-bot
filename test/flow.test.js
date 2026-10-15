@@ -85,6 +85,27 @@ test('several CVs → the last one is checked; CV pages as images → all images
   assert.deepStrictEqual(checked, [`m${n - 1}`, `m${n}`]);
 });
 
+test('after "reset bot record": the old checked CV is ignored, the new one is checked', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const checked = [];
+  const wa2 = { downloadMedia: async (id) => (checked.push(id), null) };
+  const send = (type, body = '') => flow.handle({ id: `m${++n}`, chatId: 'r@c.us', fromMe: false, type, body, timestamp: now() - 100 + n, name: 'زبون' }, sender, wa2);
+  await send('chat', 'بدي افحص');
+  await send('document', 'old.pdf');
+  await tick(t, 21e3);
+  assert.deepStrictEqual(checked, [`m${n}`]);
+
+  // نفس اللي بيعمله زر "امسح سجل البوت"
+  db.updateChat('r@c.us', { stage: 'new', files_since: now() - 100 + n });
+  checked.length = 0;
+  await send('chat', 'بدي افحص');
+  await tick(t, 10e3);
+  assert.deepStrictEqual(checked, [], 'no check on the old file');
+  await send('document', 'new.pdf');
+  await tick(t, 21e3);
+  assert.deepStrictEqual(checked, [`m${n}`]);
+});
+
 test('muted number or bot off → nothing', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   sent.length = 0;

@@ -70,9 +70,16 @@ function startAutoSend(sender) {
 // ---------------------------------------------------------------------------
 // القرار: هل الملف للفحص؟ وأي ملف؟
 // ---------------------------------------------------------------------------
-const pendingFiles = (chatId) => db.db
-  .prepare(`SELECT id, type, body, ts FROM messages WHERE chat_id = ? AND from_me = 0 AND type IN ('document', 'image') AND ts > ? ORDER BY ts`)
-  .all(chatId, db.now() - FILES_WINDOW_SEC);
+// ملفات الزبون اللي لسا ما انفحصت: آخر 6 ساعات، وبعد آخر فحص أو آخر "مسح سجل البوت"
+// (قبل: بعد المسح كان البوت يفحص السيرة القديمة اللي انفحصت قبل بدل الجديدة)
+function pendingFiles(chatId) {
+  const since = Math.max(db.now() - FILES_WINDOW_SEC, db.getChat(chatId)?.files_since || 0);
+  return db.db
+    .prepare(`SELECT id, type, body, ts FROM messages WHERE chat_id = ? AND from_me = 0 AND type IN ('document', 'image') AND ts > ? ORDER BY ts`)
+    .all(chatId, since);
+}
+// بعد الفحص: كل الملفات لحد هون بتصير "قديمة"
+const markChecked = (chatId) => db.updateChat(chatId, { stage: RECEIVED, files_since: db.now() });
 
 const DECIDE_PROMPT = `انت مساعد لشركة بتعمل فحص مجاني للسير الذاتية على واتساب. الموظف بيحكي مع الزبون، وانت بتقرأ آخر المحادثة وبتقرر إذا الزبون بعت سيرته الذاتية عشان الفحص المجاني، وأي ملف لازم ينفحص.
 
@@ -92,7 +99,7 @@ function conversationText(chatId, files) {
   return db.history(chatId, 25).map((m) => {
     const who = !m.from_me ? 'الزبون' : m.by_bot === 1 ? 'البوت' : 'الموظف';
     if (num.has(m.id)) return `${who}: [ملف ${num.get(m.id)}: ${m.type === 'image' ? 'صورة' : m.body.replace(/^📄 /, '')}]`;
-    if (FILE_TYPES.has(m.type)) return `${who}: [ملف قديم: ${m.body}]`;
+    if (FILE_TYPES.has(m.type)) return `${who}: [ملف قديم انفحص قبل، تجاهله: ${m.body}]`;
     return `${who}: ${m.body}`;
   }).join('\n');
 }
@@ -164,7 +171,7 @@ async function decide(chatId, sender, wa) {
 
   let picked = d.files.map((n) => files[n - 1]).filter(Boolean);
   if (!picked.length) picked = [files[files.length - 1]];
-  db.updateChat(chatId, { stage: RECEIVED });
+  markChecked(chatId);
   reply(chatId, 'ack', settings.get().ackText, sender);
   runCheck(chatId, picked, wa, sender, d.reason).catch((err) => failed(chatId, `الفحص فشل: ${err.message}`));
   return d;
@@ -174,7 +181,7 @@ async function decide(chatId, sender, wa) {
 function checkNow(chatId, msgIds, sender, wa) {
   const rows = msgIds.map((id) => db.db.prepare(`SELECT id, type, body, ts FROM messages WHERE id = ? AND chat_id = ?`).get(id, chatId)).filter(Boolean);
   if (!rows.length) return { error: 'الملف مش موجود' };
-  db.updateChat(chatId, { stage: RECEIVED });
+  markChecked(chatId);
   runCheck(chatId, rows, wa, sender, 'فحص من الداشبورد').catch((err) => failed(chatId, `الفحص فشل: ${err.message}`));
   return { ok: true };
 }
