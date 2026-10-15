@@ -78,7 +78,11 @@ class WhatsApp extends EventEmitter {
     this.client.on('disconnected', (reason) => {
       this.ready = false;
       this._setStatus(`disconnected: ${reason}`);
-      if (!this._relinking) this._retry(`disconnected: ${reason}`);
+      if (this._relinking) return;
+      // تسجيل خروج من الجوال: الجلسة القديمة ما عادت تنفع. منمسحها ومنبلّش من جديد فبيطلع QR على طول
+      // (قبل كان يرجع يجرب بالجلسة القديمة ويعلق على "عم يزامن" وما يطلع كود)
+      if (/LOGOUT|UNPAIRED|CONFLICT/i.test(String(reason))) return this.relink(false);
+      this._retry(`disconnected: ${reason}`);
     });
   }
 
@@ -101,6 +105,15 @@ class WhatsApp extends EventEmitter {
     clearTimeout(this._watchdog);
     this.ready = false;
     this._attempts = (this._attempts || 0) + 1;
+    // 3 مرات ورا بعض ما قدر يتصل (وما طلع QR): الجلسة خربانة. منمسحها عشان يطلع كود ربط جديد
+    const stuck = /stuck while starting/.test(reason);
+    this._stuckCount = stuck ? (this._stuckCount || 0) + 1 : 0;
+    if (this._stuckCount >= 3) {
+      console.error('WhatsApp could not connect 3 times in a row — clearing the session so a new QR shows up');
+      this._stuckCount = 0;
+      this._retrying = false;
+      return this.relink(false);
+    }
     const delay = Math.min(15e3 * 2 ** (this._attempts - 1), MAX_RETRY_DELAY_MS);
     console.error(`WhatsApp failed (${reason}). Retrying in ${delay / 1000}s...`);
     this._setStatus(`retrying: ${reason}`);
@@ -111,23 +124,42 @@ class WhatsApp extends EventEmitter {
     }, delay);
   }
 
-  stop() {
+  // تسكير المتصفح. إذا علق (صفحة جامدة) ما منستنى للأبد: بعد 15 ثانية منقتله
+  async stop() {
     this.ready = false;
-    return this.client?.destroy().catch(() => {});
+    const client = this.client;
+    if (!client) return;
+    const proc = client.pupBrowser?.process?.();
+    await withTimeout(client.destroy(), 15e3, 'destroy').catch(() => {});
+    if (proc && proc.exitCode === null) {
+      try {
+        proc.kill('SIGKILL');
+      } catch {}
+    }
   }
 
-  // تسجيل خروج الرقم الحالي وربط رقم جديد (بيطلع QR جديد بالداشبورد)
-  async relink() {
+  // تسجيل خروج الرقم الحالي وربط رقم جديد: الجلسة بتنمسح وبيطلع QR جديد بالداشبورد
+  // logout=false لما الرقم أصلاً طلع (من الجوال) أو الجلسة خربانة
+  async relink(logout = true) {
+    if (this._relinking) return;
     this._relinking = true;
     this._attempts = 0;
+    this._stuckCount = 0;
+    clearTimeout(this._retryTimer);
+    clearTimeout(this._watchdog);
     this._setStatus('logging_out');
-    try {
-      await this.client.logout();
-    } catch {}
+    if (logout) await withTimeout(this.client.logout(), 10e3, 'logout').catch(() => {});
     await this.stop();
+    try {
+      fs.rmSync(path.join(config.AUTH_DIR, 'session'), { recursive: true, force: true });
+    } catch (err) {
+      console.error('could not clear WhatsApp session:', err.message);
+    }
     this.account = null;
     this.qr = null;
     this._relinking = false;
+    this._retrying = false;
+    console.log('WhatsApp session cleared — waiting for a new QR');
     return this.start();
   }
 

@@ -103,7 +103,7 @@ function renderBar() {
   // الرام على السيرفر: إذا قربت تخلص صفحة الواتس بتعلق، فمنبيّنها
   const m = S.memory;
   const mem = m?.percent ? `<span class="mem ${m.percent >= 85 ? 'high' : ''}" title="الرام المستخدمة على السيرفر: ${m.usedMb} من ${m.limitMb} ميجا">الرام ${m.percent}%</span>` : '';
-  patch($('#wa'), `<span class="dot ${dot}"></span><span>واتساب ${esc(WA[key] || S.whatsapp.status)}</span>${S.whatsapp.account?.phone ? `<span class="acct">· ${phone(S.whatsapp.account.phone)}</span>` : ''}${mem}`);
+  patch($('#wa'), `<span class="dot ${dot}"></span><span>واتساب ${esc(WA[key] || S.whatsapp.status)}</span>${S.whatsapp.account?.phone ? `<span class="acct">· ${phone(S.whatsapp.account.phone)}</span>` : ''}${mem}${!S.whatsapp.ready && !S.whatsapp.qr && key !== 'logging_out' ? '<button class="pill-btn" data-relink>اعرض كود الربط</button>' : ''}`);
   $('#enabled').checked = S.enabled;
   $('#enabled-label').textContent = S.enabled ? 'البوت شغّال' : 'البوت موقّف';
   const n = S.results.length;
@@ -331,6 +331,10 @@ document.addEventListener('click', async (e) => {
   if (t.hasAttribute('data-back')) return closeChat();
 
   const card = t.closest('.result');
+  if (t.hasAttribute('data-relink')) {
+    if (!(await ask('كود ربط جديد', 'الجلسة الحالية بتنمسح وبيطلع كود QR جديد خلال دقيقة تقريباً. امسحه من الجوال اللي بدك اياه.', 'اعرض الكود'))) return;
+    return done(await api('/api/whatsapp/relink', {}), 'عم يجهز كود جديد...');
+  }
   if (t.dataset.retry) return done(await api(`/api/replies/${t.dataset.retry}/send`, {}), 'عم تنبعت مرة كمان');
   if (card && t.hasAttribute('data-send')) {
     t.disabled = true;
