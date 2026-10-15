@@ -69,6 +69,7 @@ async function state(wa, sender) {
     autoSend: s.autoSend,
     ackText: s.ackText,
     queue: sender.queue.length,
+    memory: require('../shared/system').memory(),
     results: results(),
   };
 }

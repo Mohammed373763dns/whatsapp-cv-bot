@@ -14,6 +14,7 @@ const cv = require('./cv/checker');
 const { checkWithOpti } = require('./cv/opti');
 const { toPdf } = require('./cv/convert');
 const { withBrowser } = require('./cv/browser');
+const { friendlyError } = require('./shared/system');
 
 const RECEIVED = 'cv_received';
 // أي رقم وصل لهون (أو أبعد بالنظام القديم) أخد فحصه
@@ -173,7 +174,7 @@ async function decide(chatId, sender, wa) {
   if (!picked.length) picked = [files[files.length - 1]];
   markChecked(chatId);
   reply(chatId, 'ack', settings.get().ackText, sender);
-  runCheck(chatId, picked, wa, sender, d.reason).catch((err) => failed(chatId, `الفحص فشل: ${err.message}`));
+  runCheck(chatId, picked, wa, sender, d.reason).catch((err) => failed(chatId, `الفحص فشل: ${friendlyError(err.message)}`));
   return d;
 }
 
@@ -182,7 +183,7 @@ function checkNow(chatId, msgIds, sender, wa) {
   const rows = msgIds.map((id) => db.db.prepare(`SELECT id, type, body, ts FROM messages WHERE id = ? AND chat_id = ?`).get(id, chatId)).filter(Boolean);
   if (!rows.length) return { error: 'الملف مش موجود' };
   markChecked(chatId);
-  runCheck(chatId, rows, wa, sender, 'فحص من الداشبورد').catch((err) => failed(chatId, `الفحص فشل: ${err.message}`));
+  runCheck(chatId, rows, wa, sender, 'فحص من الداشبورد').catch((err) => failed(chatId, `الفحص فشل: ${friendlyError(err.message)}`));
   return { ok: true };
 }
 

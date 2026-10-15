@@ -75,6 +75,8 @@ bdi { unicode-bidi: isolate; }
 .logo { width: 30px; height: 30px; border-radius: 9px; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; font-weight: 700; }
 .spacer { flex: 1; }
 .wa { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mem { margin-inline-start: 6px; border-radius: 999px; padding: 0 8px; background: var(--panel-2); }
+.mem.high { background: var(--bad-bg); color: var(--bad); font-weight: 700; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .dot.ok { background: var(--accent); }
 .dot.bad { background: var(--bad); }

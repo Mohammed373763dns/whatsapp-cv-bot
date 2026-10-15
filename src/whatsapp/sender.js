@@ -3,6 +3,7 @@ const EventEmitter = require('events');
 const fs = require('fs');
 const db = require('../db');
 const settings = require('../settings');
+const { friendlyError } = require('../shared/system');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (min, max) => min + Math.random() * (max - min);
@@ -80,7 +81,7 @@ class SafeSender extends EventEmitter {
           db.setReplyStatus(id, 'sent', { sent_at: db.now() });
           this.emit('sent', db.getReply(id));
         } catch (err) {
-          console.error('send failed:', err.message);
+          console.error(`send failed: ${err.message} · memory ${require('../shared/system').memoryText()}`);
           // صفحة الواتس جمدت: منعيد تشغيل الواتس ومنجرب مرة كمان قبل ما نعتبرها فشلت
           if (/timed out|ما رد خلال/.test(err.message) && !this.retried.has(id)) {
             this.retried.add(id);
@@ -89,7 +90,7 @@ class SafeSender extends EventEmitter {
             continue;
           }
           this.retried.delete(id);
-          db.setReplyStatus(id, 'failed', { note: `${reply.note ? `${reply.note} · ` : ''}فشل الإرسال: ${err.message}`.slice(0, 500) });
+          db.setReplyStatus(id, 'failed', { note: `${reply.note ? `${reply.note} · ` : ''}فشل الإرسال: ${friendlyError(err.message)}`.slice(0, 500) });
         }
       }
     } finally {
@@ -121,7 +122,7 @@ class SafeSender extends EventEmitter {
       } catch (err) {
         // الصورة ما زبطت: الزبون ما بيستنى، النص بينبعت لحاله على طول والسبب بيطلع باللوحة
         console.error('result image failed, sending the text without it:', err.message);
-        db.setReplyStatus(reply.id, 'queued', { note: `${reply.note ? `${reply.note} · ` : ''}صورة الدرجة ما انبعتت (${err.message.slice(0, 120)})`.slice(0, 500) });
+        db.setReplyStatus(reply.id, 'queued', { note: `${reply.note ? `${reply.note} · ` : ''}صورة الدرجة ما انبعتت: ${friendlyError(err.message)}`.slice(0, 500) });
         reply.note = db.getReply(reply.id).note;
       }
     }

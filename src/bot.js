@@ -27,6 +27,7 @@ const real = flow.REAL_TYPES.map((x) => `'${x}'`).join(', ');
 db.db.prepare(`DELETE FROM messages WHERE type NOT IN (${real})`).run();
 db.db.prepare(`DELETE FROM chats WHERE id NOT IN (SELECT chat_id FROM messages) AND id NOT IN (SELECT chat_id FROM replies)`).run();
 
+require('./shared/system').startMemoryLog();
 xai.loadPricing();
 dashboard.start({ wa, sender });
 flow.startAutoSend(sender);

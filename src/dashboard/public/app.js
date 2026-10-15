@@ -100,7 +100,10 @@ const WA = { ready: 'متصل', qr: 'بانتظار مسح الكود', starting
 function renderBar() {
   const key = (S.whatsapp.status || '').split(':')[0];
   const dot = S.whatsapp.ready ? 'ok' : /disconnected|retrying/.test(key) ? 'bad' : '';
-  patch($('#wa'), `<span class="dot ${dot}"></span><span>واتساب ${esc(WA[key] || S.whatsapp.status)}</span>${S.whatsapp.account?.phone ? `<span class="acct">· ${phone(S.whatsapp.account.phone)}</span>` : ''}`);
+  // الرام على السيرفر: إذا قربت تخلص صفحة الواتس بتعلق، فمنبيّنها
+  const m = S.memory;
+  const mem = m?.percent ? `<span class="mem ${m.percent >= 85 ? 'high' : ''}" title="الرام المستخدمة على السيرفر: ${m.usedMb} من ${m.limitMb} ميجا">الرام ${m.percent}%</span>` : '';
+  patch($('#wa'), `<span class="dot ${dot}"></span><span>واتساب ${esc(WA[key] || S.whatsapp.status)}</span>${S.whatsapp.account?.phone ? `<span class="acct">· ${phone(S.whatsapp.account.phone)}</span>` : ''}${mem}`);
   $('#enabled').checked = S.enabled;
   $('#enabled-label').textContent = S.enabled ? 'البوت شغّال' : 'البوت موقّف';
   const n = S.results.length;

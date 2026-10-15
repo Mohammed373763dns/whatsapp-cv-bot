@@ -7,6 +7,7 @@ const path = require('path');
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const config = require('../config');
+const { CHROMIUM_ARGS, memoryText } = require('../shared/system');
 
 const READY_FALLBACK_SEC = 30;
 const STARTUP_TIMEOUT_MS = 4 * 60e3; // إذا ما اتصل خلال 4 دقايق (وما في QR بيستنى) منعيد المحاولة
@@ -62,7 +63,7 @@ class WhatsApp extends EventEmitter {
         // السيرفر أبطأ من اللابتوب: صفحة الواتس ممكن تاخد وقت لترد (الافتراضي 3 دقايق وكان يوقّع البوت)
         protocolTimeout: 300e3,
         // على السيرفر: ذاكرة مشتركة صغيرة وما في كرت شاشة
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--no-default-browser-check'],
+        args: CHROMIUM_ARGS,
         ...(config.BROWSER_PATH && { executablePath: config.BROWSER_PATH }),
       },
     });
@@ -213,7 +214,12 @@ class WhatsApp extends EventEmitter {
       page.on('console', (m) => ['error', 'warn'].includes(m.type()) && keep(m.type(), m.text()));
       page.on('pageerror', (err) => keep('pageerror', err.message));
       page.on('requestfailed', (r) => keep('request', `${r.failure()?.errorText} ${r.url().slice(0, 120)}`));
-      page.on('error', (err) => keep('crash', err.message));
+      // صفحة الواتس ماتت (غالباً خلصت الرام): منعيد تشغيلها على طول بدل ما كل رسالة تستنى 90 ثانية
+      page.on('error', (err) => {
+        keep('crash', err.message);
+        console.error(`WhatsApp page crashed: ${err.message} · memory ${memoryText()}`);
+        this._retry('WhatsApp page crashed (usually out of memory)');
+      });
     }
 
     this.account = await page
@@ -334,6 +340,7 @@ class WhatsApp extends EventEmitter {
   // أخطاء صفحة الواتس من وقت معيّن (للتشخيص)
   _dumpPageErrors(since) {
     const errs = this.pageErrors.filter((e) => e.at >= since);
+    console.error(`memory now: ${memoryText()}`);
     if (!errs.length) return console.error('WhatsApp page: no errors logged during the send (the page just did not answer)');
     console.error(`WhatsApp page errors during the send (${errs.length}):`);
     for (const e of errs.slice(-15)) console.error(`  [${e.type}] ${e.text}`);
