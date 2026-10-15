@@ -13,6 +13,7 @@ const xai = require('./ai/xai');
 const cv = require('./cv/checker');
 const { checkWithOpti } = require('./cv/opti');
 const { toPdf } = require('./cv/convert');
+const { withBrowser } = require('./cv/browser');
 
 const RECEIVED = 'cv_received';
 // أي رقم وصل لهون (أو أبعد بالنظام القديم) أخد فحصه
@@ -194,11 +195,13 @@ async function runCheck(chatId, msgs, wa, sender, why = '') {
   if (!files.length) return failed(chatId, 'ما قدرت أنزّل الملف — افتحه من الواتس وافحصه إنت');
 
   // برنامج الفحص (opti) بيعطي الدرجة والصورة، وبيقبل PDF بس — الورد والصور بتتحول PDF أول
-  const browser = wa.client?.pupBrowser;
-  const optiJob = cfg.useOpti && browser
-    ? toPdf(browser, files)
-      .then((pdf) => (pdf ? checkWithOpti(browser, pdf.buffer, { baseUrl: cfg.optiUrl, filename: pdf.filename, botKey: process.env.OPTI_BOT_KEY }) : { error: 'نوع الملف مش مدعوم' }))
-      .catch((err) => ({ error: err.message }))
+  // بمتصفح منفصل عن الواتس (عشان ما يجمّده)
+  const optiJob = cfg.useOpti
+    ? withBrowser(async (browser) => {
+      const pdf = await toPdf(browser, files);
+      if (!pdf) return { error: 'نوع الملف مش مدعوم' };
+      return checkWithOpti(browser, pdf.buffer, { baseUrl: cfg.optiUrl, filename: pdf.filename, botKey: process.env.OPTI_BOT_KEY });
+    }).catch((err) => ({ error: err.message }))
     : Promise.resolve({ error: 'برنامج الفحص مطفي' });
 
   const [result, opti] = await Promise.all([cv.check({ files }), optiJob]);

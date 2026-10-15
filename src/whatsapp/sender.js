@@ -28,6 +28,7 @@ class SafeSender extends EventEmitter {
     this.queue = [];
     this.sentAt = []; // أوقات الإرسال لحساب الحدود
     this.running = false;
+    this.retried = new Set(); // ردود انعادت مرة بعد ما جمد الواتس
     this.echoes = new Map(); // نصوص عم تنبعت من هون، عشان ما نفكرها رسالة الموظف من الجوال
   }
 
@@ -75,11 +76,20 @@ class SafeSender extends EventEmitter {
         if (!reply || reply.status !== 'queued') continue;
         try {
           await this._deliver(reply);
+          this.retried.delete(id);
           db.setReplyStatus(id, 'sent', { sent_at: db.now() });
           this.emit('sent', db.getReply(id));
         } catch (err) {
           console.error('send failed:', err.message);
-          db.setReplyStatus(id, 'failed', { note: `فشل الإرسال: ${err.message}`.slice(0, 500) });
+          // صفحة الواتس جمدت: منعيد تشغيل الواتس ومنجرب مرة كمان قبل ما نعتبرها فشلت
+          if (/timed out|ما رد خلال/.test(err.message) && !this.retried.has(id)) {
+            this.retried.add(id);
+            this.queue.unshift(id);
+            this.wa._retry?.('send timed out — WhatsApp page is frozen');
+            continue;
+          }
+          this.retried.delete(id);
+          db.setReplyStatus(id, 'failed', { note: `${reply.note ? `${reply.note} · ` : ''}فشل الإرسال: ${err.message}`.slice(0, 500) });
         }
       }
     } finally {
