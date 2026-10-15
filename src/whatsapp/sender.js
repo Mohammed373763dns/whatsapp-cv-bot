@@ -114,14 +114,15 @@ class SafeSender extends EventEmitter {
       const image = fs.readFileSync(reply.attachment);
       this.echoes.set(`${chatId}|${text}`, echo);
       try {
-        await withTimeout(this.wa.sendImage(chatId, image, 'image/jpeg', text), SEND_TIMEOUT_MS, 'صورة الفحص');
+        // sendImage نفسها بتجرب طريقتين (40 ثانية لكل وحدة)
+        await withTimeout(this.wa.sendImage(chatId, image, 'image/jpeg', text), SEND_TIMEOUT_MS + 15e3, 'صورة الفحص');
         this.sentAt.push(Date.now());
         return;
       } catch (err) {
-        // الواتس رفض النص الطويل تحت الصورة؟ الصورة لحال والنص بعدها
-        console.error('caption send failed, sending image alone:', err.message);
-        await withTimeout(this.wa.sendImage(chatId, image, 'image/jpeg', ''), SEND_TIMEOUT_MS, 'الصورة').catch((e) => console.error('image send failed:', e.message));
-        await sleep(rand(2, 4) * 1000);
+        // الصورة ما زبطت: الزبون ما بيستنى، النص بينبعت لحاله على طول والسبب بيطلع باللوحة
+        console.error('result image failed, sending the text without it:', err.message);
+        db.setReplyStatus(reply.id, 'queued', { note: `${reply.note ? `${reply.note} · ` : ''}صورة الدرجة ما انبعتت (${err.message.slice(0, 120)})`.slice(0, 500) });
+        reply.note = db.getReply(reply.id).note;
       }
     }
     this.echoes.set(`${chatId}|${text}`, echo);

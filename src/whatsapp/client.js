@@ -11,6 +11,17 @@ const config = require('../config');
 const READY_FALLBACK_SEC = 30;
 const STARTUP_TIMEOUT_MS = 4 * 60e3; // إذا ما اتصل خلال 4 دقايق (وما في QR بيستنى) منعيد المحاولة
 const MAX_RETRY_DELAY_MS = 2 * 60e3;
+const IMAGE_TRY_MS = 40e3;
+
+function withTimeout(promise, ms, what) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what}: no answer from WhatsApp page in ${ms / 1000}s`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 // إذا البوت انطفى فجأة (تحديث على Railway مثلاً) المتصفح بيترك أقفال بمجلد الجلسة،
 // وبالمرة الجاية بيرفض يفتح ("profile in use"). منمسحها قبل كل تشغيل
@@ -30,6 +41,7 @@ class WhatsApp extends EventEmitter {
     this.qr = null;      // آخر كود QR (للداشبورد)
     this.account = null; // الرقم المربوط
     this.ready = false;
+    this.pageErrors = []; // آخر أخطاء صفحة الواتس (بتنطبع لما الإرسال يفشل)
   }
 
   _setStatus(s) {
@@ -191,6 +203,19 @@ class WhatsApp extends EventEmitter {
   async _attach() {
     const page = this.client.pupPage;
 
+    // أخطاء جوا صفحة الواتس: منخزن آخر 50 (بدون ما نعبي الـlogs)، ومنطبعها بس لما إرسال يفشل
+    if (!page.__botErrors) {
+      page.__botErrors = true;
+      const keep = (type, text) => {
+        this.pageErrors.push({ at: Date.now(), type, text: String(text).slice(0, 300) });
+        if (this.pageErrors.length > 50) this.pageErrors.shift();
+      };
+      page.on('console', (m) => ['error', 'warn'].includes(m.type()) && keep(m.type(), m.text()));
+      page.on('pageerror', (err) => keep('pageerror', err.message));
+      page.on('requestfailed', (r) => keep('request', `${r.failure()?.errorText} ${r.url().slice(0, 120)}`));
+      page.on('error', (err) => keep('crash', err.message));
+    }
+
     this.account = await page
       .evaluate(() => {
         const U = window.require('WAWebUserPrefsMeUser');
@@ -276,20 +301,42 @@ class WhatsApp extends EventEmitter {
 
   // صورة مع نص (مثلاً صورة الفحص من برنامجك)
   // محاولتين: مباشرة من الصفحة، وإذا فشلت بطريقة المكتبة نفسها
+  // كل محاولة إلها 40 ثانية لحالها (قبل: الأولى كانت تعلق وتاكل كل الوقت، والتانية ما تنجرب أبداً).
+  // إذا فشلوا الاتنين منطبع بالـlogs أخطاء صفحة الواتس اللي صارت وقت الإرسال، عشان نعرف السبب
   async sendImage(chatId, buffer, mimetype = 'image/jpeg', caption = '') {
-    try {
-      return await this._sendImageDirect(chatId, buffer, mimetype, caption);
-    } catch (first) {
-      console.error('image (direct) failed:', first.message, '— trying library sendMessage');
-      const { MessageMedia } = require('whatsapp-web.js');
-      const media = new MessageMedia(mimetype, buffer.toString('base64'), 'cv-check.jpg');
+    const since = Date.now();
+    const kb = Math.round(buffer.length / 1024);
+    const attempt = async (name, fn) => {
+      const t = Date.now();
       try {
-        const msg = await this.client.sendMessage(chatId, media, { caption, sendSeen: false });
-        return msg?.id?._serialized || null;
+        const id = await withTimeout(fn(), IMAGE_TRY_MS, name);
+        console.log(`image sent (${name}) in ${Math.round((Date.now() - t) / 1000)}s · ${kb}KB`);
+        return id;
+      } catch (err) {
+        console.error(`image (${name}) failed after ${Math.round((Date.now() - t) / 1000)}s: ${err.message}`);
+        throw err;
+      }
+    };
+    try {
+      return await attempt('direct', () => this._sendImageDirect(chatId, buffer, mimetype, caption));
+    } catch (first) {
+      try {
+        const { MessageMedia } = require('whatsapp-web.js');
+        const media = new MessageMedia(mimetype, buffer.toString('base64'), 'cv-check.jpg');
+        return await attempt('library', () => this.client.sendMessage(chatId, media, { caption, sendSeen: false }).then((m) => m?.id?._serialized || null));
       } catch (second) {
+        this._dumpPageErrors(since);
         throw new Error(`${first.message} | ${second.message}`);
       }
     }
+  }
+
+  // أخطاء صفحة الواتس من وقت معيّن (للتشخيص)
+  _dumpPageErrors(since) {
+    const errs = this.pageErrors.filter((e) => e.at >= since);
+    if (!errs.length) return console.error('WhatsApp page: no errors logged during the send (the page just did not answer)');
+    console.error(`WhatsApp page errors during the send (${errs.length}):`);
+    for (const e of errs.slice(-15)) console.error(`  [${e.type}] ${e.text}`);
   }
 
   _sendImageDirect(chatId, buffer, mimetype, caption) {
