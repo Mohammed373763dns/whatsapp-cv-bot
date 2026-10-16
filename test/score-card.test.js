@@ -15,6 +15,7 @@ test('isArabic follows the CV text', () => {
 test('Arabic card names the leftover English criteria', () => {
   assert.strictEqual(criterionName({ name_en: 'Work experience structure' }, true), 'تنسيق الخبرات المهنية');
   assert.strictEqual(criterionName({ name_en: 'ATS template capability' }, true), 'قابلية تخطي أنظمة الفرز');
+  assert.strictEqual(criterionName({ name_en: 'ATS template compatibility' }, true), 'قابلية تخطي أنظمة الفرز');
 });
 
 test('ATS pass score drops to 75 when the CV has no numbers', () => {

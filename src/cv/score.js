@@ -123,6 +123,7 @@ const CRITERIA_AR = {
   'ats language compatibility': 'توافق لغة ATS',
   'ats keyword compatibility': 'توافق كلمات ATS',
   'ats template capability': 'قابلية تخطي أنظمة الفرز',
+  'ats template compatibility': 'قابلية تخطي أنظمة الفرز',
   formatting: 'التنسيق',
   'skills organization': 'تنظيم المهارات',
   'spelling & grammar': 'الإملاء والقواعد',
@@ -188,20 +189,20 @@ async function drawCard({ score, criteria, ats, rtl = false }, previewBuffer) {
   if (previewBuffer) {
     try {
       const img = await loadImage(previewBuffer);
-      // الصورة بتعبّي المربع كله (بدون فراغ أبيض تحت): بتتكبّر لتغطيه، والزيادة بتنقص من الأطراف أو من تحت
+      // عرض السيرة كامل. إذا الصفحة أطول من المربع، الزيادة بتنقص من تحت مش من الجوانب
       const bx = px + 20;
       const by = py + 50;
       const boxW = pw - 40;
       const boxH = ph - 70;
-      const s = Math.max(boxW / img.width, boxH / img.height);
-      const w = img.width * s;
+      const s = boxW / img.width;
+      const w = boxW;
       const h = img.height * s;
       ctx.save();
       roundRect(ctx, bx, by, boxW, boxH, 6);
       ctx.clip();
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(bx, by, boxW, boxH);
-      ctx.drawImage(img, bx + (boxW - w) / 2, by, w, h); // من فوق (الاسم والبداية دايماً بيّنين)
+      ctx.drawImage(img, bx, by, w, h);
       ctx.restore();
       ctx.strokeStyle = '#e5e7eb';
       ctx.lineWidth = 1;
