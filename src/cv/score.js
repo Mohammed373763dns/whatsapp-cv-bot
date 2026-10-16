@@ -118,9 +118,11 @@ const CRITERIA_AR = {
   'professional summary': 'الملخص المهني',
   'work experience': 'الخبرات العملية',
   'work experience in detail': 'تفاصيل الخبرات',
+  'work experience structure': 'تنسيق الخبرات المهنية',
   'quantified achievements': 'الإنجازات بالأرقام',
   'ats language compatibility': 'توافق لغة ATS',
   'ats keyword compatibility': 'توافق كلمات ATS',
+  'ats template capability': 'قابلية تخطي أنظمة الفرز',
   formatting: 'التنسيق',
   'skills organization': 'تنظيم المهارات',
   'spelling & grammar': 'الإملاء والقواعد',
@@ -132,6 +134,19 @@ function criterionName(c, rtl) {
   const en = String(c.name_en || c.name || '');
   if (!rtl) return en;
   return c.name_ar || c.nameAr || c.label_ar || CRITERIA_AR[en.toLowerCase()] || c.name || en;
+}
+
+const labelOf = (c) => `${c.name_en || ''} ${c.name || ''} ${c.name_ar || ''}`.toLowerCase();
+const isQuantified = (c) => /quantified|achievement|إنجازات|بالأرقام|بالارقام/.test(labelOf(c));
+const isAtsPass = (c) => /ats template|template capability|تخطي أنظمة الفرز|تخطي انظمة الفرز/.test(labelOf(c));
+
+// أنظمة الفرز بتدور على أرقام وإنجازات. إذا السيرة ما فيها أرقام، درجة تخطيها ما بتعدّي 75
+function tuneCriteria(criteria) {
+  const rows = (criteria || []).map((c) => ({ ...c }));
+  const quantified = rows.find(isQuantified);
+  const ats = rows.find(isAtsPass);
+  if (quantified && Number(quantified.score) < 40 && ats && Number(ats.score) > 75) ats.score = 75;
+  return rows;
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -292,8 +307,9 @@ async function scoreCv(files, { baseUrl, botKey }) {
     ]);
     const follow = require('../settings').get().cv.imageByLang !== false;
     const rtl = follow && isArabic(await languageSample(prep));
-    const image = await drawCard({ score: data.overall_score, criteria: data.criteria, ats: data.ats_compatibility, rtl }, preview);
-    return { score: data.overall_score, image, data };
+    const criteria = tuneCriteria(data.criteria);
+    const image = await drawCard({ score: data.overall_score, criteria, ats: data.ats_compatibility, rtl }, preview);
+    return { score: data.overall_score, image, data: { ...data, criteria } };
   } finally {
     running--;
   }
@@ -319,4 +335,4 @@ async function languageSample(prep) {
   return '';
 }
 
-module.exports = { scoreCv, drawCard, textToDocx, busy, isArabic };
+module.exports = { scoreCv, drawCard, textToDocx, busy, isArabic, criterionName, tuneCriteria };
