@@ -186,13 +186,14 @@ function start({ wa, sender }) {
       // الملفات اللي قبل المسح ما بتنحسب: البوت بيستنى سيرة جديدة
       db.updateChat(id, { stage: 'new', files_since: db.now() });
       db.db.prepare('DELETE FROM replies WHERE chat_id = ?').run(id);
+      db.db.prepare(`UPDATE file_checks SET status = 'failed' WHERE chat_id = ? AND status IN ('checking', 'ready', 'offer')`).run(id);
       return { ok: true };
     }],
     // حذف المحادثة من اللوحة (رسائل الواتس نفسها ما بتنمسح). لو الزبون بعت كمان بترجع تبيّن
     [/^POST \/api\/chats\/([^/]+)\/delete$/, (m) => {
       const id = chatId(m);
       sender.cancelForChat(id);
-      for (const t of ['messages', 'replies']) db.db.prepare(`DELETE FROM ${t} WHERE chat_id = ?`).run(id);
+      for (const t of ['messages', 'replies', 'file_checks']) db.db.prepare(`DELETE FROM ${t} WHERE chat_id = ?`).run(id);
       db.db.prepare('DELETE FROM chats WHERE id = ?').run(id);
       return { ok: true };
     }],

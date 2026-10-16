@@ -229,13 +229,14 @@ class WhatsApp extends EventEmitter {
           chatId: chat.id._serialized,
           fromMe: false,
           type: last.type,
-          body: last.type === 'chat' ? last.body || '' : last.caption || '',
+          body: ['chat', 'buttons_response', 'template_button_reply'].includes(last.type) ? last.body || '' : last.caption || '',
           timestamp: last.t,
           name: chat.formattedTitle || last.notifyName || null,
           phone,
           filename: last.filename || null,
           mimetype: last.mimetype || null,
           duration: Number(last.duration) || 0,
+          selectedId: last.selectedButtonId || null,
         });
       }
       return out;
@@ -297,13 +298,14 @@ class WhatsApp extends EventEmitter {
           chatId: m.id.remote._serialized,
           fromMe: m.id.fromMe,
           type: m.type,
-          body: m.type === 'chat' ? m.body || '' : m.caption || '',
+          body: ['chat', 'buttons_response', 'template_button_reply'].includes(m.type) ? m.body || '' : m.caption || '',
           timestamp: m.t,
           name: chat?.formattedTitle || m.notifyName || null,
           phone,
           filename: m.filename || null,
           mimetype: m.mimetype || null,
           duration: Number(m.duration) || 0,
+          selectedId: m.selectedButtonId || null,
         });
       });
     });
@@ -337,13 +339,35 @@ class WhatsApp extends EventEmitter {
   sendText(chatId, text) {
     return this.client.pupPage.evaluate(
       async (chatId, text) => {
-        const chat = window.require('WAWebCollections').Chat.get(chatId);
+        const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
         if (!chat) throw new Error('chat not found');
         const msg = await window.WWebJS.sendMessage(chat, text, {});
         return msg ? msg.id.toString() : null;
       },
       chatId,
       text
+    );
+  }
+
+  // زر عند المستخدم (مو عند رقم البوت). ضغطة الزر بترجع رسالة فيها selectedButtonId
+  sendButtons(chatId, text, buttons) {
+    return this.client.pupPage.evaluate(
+      async (chatId, text, buttons) => {
+        const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
+        if (!chat) throw new Error('chat not found');
+        const formatted = buttons.map((b) => ({
+          buttonId: String(b.id),
+          buttonText: { displayText: b.body },
+          type: 1,
+        }));
+        const msg = await window.WWebJS.sendMessage(chat, '', {
+          buttons: { type: 'chat', body: text, buttons: formatted },
+        });
+        return msg ? msg.id.toString() : null;
+      },
+      chatId,
+      text,
+      buttons
     );
   }
 
@@ -396,7 +420,7 @@ class WhatsApp extends EventEmitter {
   _sendImageDirect(chatId, buffer, mimetype, caption) {
     return this.client.pupPage.evaluate(
       async (chatId, data, mimetype, caption) => {
-        const chat = window.require('WAWebCollections').Chat.get(chatId);
+        const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
         if (!chat) throw new Error('chat not found');
         const media = { mimetype, data, filename: 'cv-check.jpg', filesize: Math.round((data.length * 3) / 4) };
         const msg = await window.WWebJS.sendMessage(chat, '', { media, caption });

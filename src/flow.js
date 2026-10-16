@@ -1,15 +1,12 @@
-// البوت بيعمل شغلة وحدة: الفحص المجاني للسيرة الذاتية
-//   - الموظف هو اللي بيحكي مع الزبون (وبيطلب منه سيرته). البوت ما بيرد على الكلام
-//   - لما الزبون يبعت ملف، الذكاء الاصطناعي بيقرأ المحادثة وبيقرر: هل انبعت عشان الفحص؟ وأي ملف بالزبط؟
-//     (بعت سيرتين وقال "افحصوا آخر وحدة"، أو بعت السيرة كذا صورة...)
-//   - إذا آه: البوت بيرد بالرد الآلي، بيفحص، والنتيجة بتطلع بالداشبورد (وبتنبعت لحالها بعد ربع ساعة)
-// الفحص مرة وحدة لكل رقم (من الداشبورد بتقدر تمسح سجل البوت للرقم)
+// البوت بيعمل شغلة وحدة: فحص الملف اللي بينبعتله
+//   - أي ملف (أو كم صورة ورا بعض) → "شو رقم صاحب الملف؟" وبعدها "جاري الفحص"
+//   - لما يخلص الفحص: النتيجة بتنبعت للي بعت الملف، ومعها زر يحوّل نفس الفحص لرقم صاحب الملف
+//   - الكلام العادي ما بيرد عليه. الفحص مش محصور بمرة وحدة لكل رقم
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const settings = require('./settings');
 const config = require('./config');
-const xai = require('./ai/xai');
 const cv = require('./cv/checker');
 const { scoreCv } = require('./cv/score');
 const { friendlyError } = require('./shared/system');
@@ -19,15 +16,14 @@ const RECEIVED = 'cv_received';
 const USED = new Set([RECEIVED, 'checked', 'awaiting_job_title', 'quoted', 'payment_requested', 'paid', 'delivered']);
 const FILE_TYPES = new Set(['document', 'image']);
 // رسائل حقيقية بس. الباقي (e2e_notification وإشعارات الواتس) ما بنخزنه ولا بيبين باللوحة
-const REAL_TYPES = ['chat', 'image', 'document', 'ptt', 'audio', 'video', 'sticker', 'location', 'vcard', 'multi_vcard'];
+const REAL_TYPES = ['chat', 'image', 'document', 'ptt', 'audio', 'video', 'sticker', 'location', 'vcard', 'multi_vcard', 'buttons_response', 'template_button_reply'];
 const LABELS = { document: '📄 ملف', image: '📷 صورة', ptt: '🎤 رسالة صوتية', audio: '🎤 رسالة صوتية', video: '🎥 فيديو', sticker: 'ملصق', location: '📍 موقع', vcard: '👤 جهة اتصال', multi_vcard: '👤 جهات اتصال' };
-// منستنى الزبون يخلص (كذا صورة، أو "افحصوا آخر وحدة" بعد الملفات) وبعدين منقرر مرة وحدة
-const WAIT_AFTER_FILE_MS = 20e3;
-const WAIT_AFTER_TEXT_MS = 8e3;
-// الملفات اللي بتنحسب: آخر 6 ساعات
-const FILES_WINDOW_SEC = 6 * 3600;
-// حد لقرارات الـAI لكل رقم باليوم (عشان زبون بيبعت كثير ما يصرف)
-const MAX_DECISIONS_PER_DAY = 8;
+// منستنى شوي عشان كم صورة لنفس الملف تنفحص مع بعض، وبعدين منسأل مرة وحدة
+const FILE_WAIT_MS = 8e3;
+const ASK_PHONE = 'شو رقم صاحب الملف؟';
+const CHECKING = 'جاري الفحص';
+const SEND_BUTTON = 'أرسل الفحص لهذا الرقم';
+const COUNTRY_CODES = ['970', '972', '962', '966', '971', '965', '968', '974', '973', '964', '963', '961', '967', '249', '212', '213', '216', '218', '20', '90', '44', '49', '33', '1'];
 
 const normalize = (t) => String(t || '')
   .replace(/[ً-ٰٟ]/g, '')
@@ -40,10 +36,10 @@ const wantsCheck = (text) => /فحص|افحص|يفحص|تفحص|نفحص|تقي�
 const usedCheck = (chat) => USED.has(chat?.stage);
 
 // رد للزبون: بيمرق من الإرسال الآمن (توقيت بشري و"عم يكتب...")
+// نتيجة الفحص التلقائي بتنبعت على طول (deliver). فحص اللوحة بيستنى المراجعة
 function reply(chatId, kind, text, sender, extra = {}) {
   const id = db.addReply({ chatId, scenario: kind, text, source: 'bot', ...extra });
-  // النتيجة بتستناك بالداشبورد (sendDueResults بيبعتها لحالها بعد الوقت المحدد)
-  if (kind !== 'result') sender.enqueue(id);
+  if (text && (extra.deliver || kind !== 'result')) sender.enqueue(id);
   return id;
 }
 
@@ -67,113 +63,139 @@ function startAutoSend(sender) {
 }
 
 // ---------------------------------------------------------------------------
-// القرار: هل الملف للفحص؟ وأي ملف؟
+// رقم صاحب الملف + زر التحويل
 // ---------------------------------------------------------------------------
-// ملفات الزبون اللي لسا ما انفحصت: آخر 6 ساعات، وبعد آخر فحص أو آخر "مسح سجل البوت"
-// (قبل: بعد المسح كان البوت يفحص السيرة القديمة اللي انفحصت قبل بدل الجديدة)
-function pendingFiles(chatId) {
-  const since = Math.max(db.now() - FILES_WINDOW_SEC, db.getChat(chatId)?.files_since || 0);
-  return db.db
-    .prepare(`SELECT id, type, body, ts FROM messages WHERE chat_id = ? AND from_me = 0 AND type IN ('document', 'image') AND ts > ? ORDER BY ts`)
-    .all(chatId, since);
+const countryCode = (phone) => {
+  const p = String(phone || '').replace(/\D/g, '');
+  return COUNTRY_CODES.find((c) => p.startsWith(c)) || null;
+};
+
+// 962791234567 أو +962 79... أو رقم محلي 079... بمقدمة دولة اللي بعت الملف
+function parsePhone(text, senderPhone) {
+  const raw = String(text || '');
+  const chunks = raw.match(/\d[\d\s().+-]{6,}\d/g) || [];
+  let best = '';
+  for (const c of chunks) {
+    let d = c.replace(/\D/g, '');
+    if (d.startsWith('00')) d = d.slice(2);
+    if (d.length > best.length) best = d;
+  }
+  if (!best) {
+    let d = raw.replace(/\D/g, '');
+    if (d.startsWith('00')) d = d.slice(2);
+    best = d;
+  }
+  if (!best) return null;
+  if (best.startsWith('0')) {
+    const cc = countryCode(senderPhone);
+    if (!cc) return null;
+    best = cc + best.replace(/^0+/, '');
+  }
+  if (best.length < 10 || best.length > 15) return null;
+  return best;
 }
-// بعد الفحص: كل الملفات لحد هون بتصير "قديمة"
+
+const looksLikePhoneAttempt = (text) => String(text || '').replace(/\D/g, '').length >= 6;
+const wantsForward = (text) => {
+  const t = normalize(text).trim();
+  return /^(ارسل|ابعت|ابعث|نعم)$/.test(t) || t.includes('ارسل الفحص');
+};
+
+const getJob = (id) => db.db.prepare('SELECT * FROM file_checks WHERE id = ?').get(id);
+const jobWaitingPhone = (chatId) => db.db.prepare(
+  `SELECT * FROM file_checks WHERE chat_id = ? AND owner_phone IS NULL AND status IN ('checking', 'ready') ORDER BY id DESC LIMIT 1`
+).get(chatId);
+const openOffer = (chatId) => db.db.prepare(
+  `SELECT * FROM file_checks WHERE chat_id = ? AND status = 'offer' ORDER BY id DESC LIMIT 1`
+).get(chatId);
+
+// فحص اللوحة: الملفات اللي قبل المسح ما بتنعاد
 const markChecked = (chatId) => db.updateChat(chatId, { stage: RECEIVED, files_since: db.now() });
 
-const DECIDE_PROMPT = `انت مساعد لشركة بتعمل فحص مجاني للسير الذاتية على واتساب. الموظف بيحكي مع الزبون، وانت بتقرأ آخر المحادثة وبتقرر إذا الزبون بعت سيرته الذاتية عشان الفحص المجاني، وأي ملف لازم ينفحص.
-
-- check: الزبون بعت سيرة ذاتية بسياق الفحص (هو طلب فحص، أو الموظف طلب منه يبعت سيرته للفحص، أو بعتها وحكى افحصوها).
-  اختار الملفات اللي لازم تنفحص:
-  * لو بعت أكتر من سيرة وحدد وحدة (مثلاً "افحصوا آخر وحدة" أو "الانجليزي") اختار هي بس.
-  * لو بعت السيرة كذا صورة (صفحات من نفس السيرة) اختار كل الصور.
-  * لو بعت أكتر من نسخة وما حدد اختار آخر نسخة.
-- wait: الزبون لسا ما خلص أو مش واضح (مثلاً حكى رح يبعت نسخة معدلة، أو سأل سؤال وما بيّن أي ملف).
-- ignore: الملفات مش سيرة للفحص (شهادة، صورة إشعار دفع، صورة شخصية، ملف بعتو لشغل تاني مش فحص...).
-
-رجّع JSON بس بدون أي كلام تاني:
-{"action":"check|wait|ignore","files":[أرقام الملفات],"reason":"سبب قصير بالعربي"}`;
-
-function conversationText(chatId, files) {
-  const num = new Map(files.map((f, i) => [f.id, i + 1]));
-  return db.history(chatId, 25).map((m) => {
-    const who = !m.from_me ? 'الزبون' : m.by_bot === 1 ? 'البوت' : 'الموظف';
-    if (num.has(m.id)) return `${who}: [ملف ${num.get(m.id)}: ${m.type === 'image' ? 'صورة' : m.body.replace(/^📄 /, '')}]`;
-    if (FILE_TYPES.has(m.type)) return `${who}: [ملف قديم انفحص قبل، تجاهله: ${m.body}]`;
-    return `${who}: ${m.body}`;
-  }).join('\n');
+const batches = new Map();
+function scheduleFiles(chatId, msgId, sender, wa) {
+  const batch = batches.get(chatId) || { ids: [] };
+  if (!batch.ids.includes(msgId)) batch.ids.push(msgId);
+  clearTimeout(batch.timer);
+  batch.timer = setTimeout(() => {
+    batches.delete(chatId);
+    startJob(chatId, batch.ids, sender, wa).catch((err) => console.error('check error:', err.message));
+  }, FILE_WAIT_MS);
+  batches.set(chatId, batch);
 }
 
-async function askAi(chatId, files) {
-  if (!xai.available() || !process.env.XAI_MODEL_FAST) return null;
-  try {
-    const { text } = await xai.chat({
-      purpose: 'check_decision',
-      maxTokens: 200,
-      temperature: 0,
-      messages: [
-        { role: 'system', content: DECIDE_PROMPT },
-        { role: 'user', content: `المحادثة (الأقدم فوق):\n${conversationText(chatId, files)}\n\nعدد الملفات: ${files.length}` },
-      ],
-    });
-    const d = JSON.parse(text.match(/\{[\s\S]*\}/)[0]);
-    if (!['check', 'wait', 'ignore'].includes(d.action)) return null;
-    return { action: d.action, files: (d.files || []).map(Number), reason: String(d.reason || '') };
-  } catch (err) {
-    console.error('decision AI failed:', err.message);
-    return null;
-  }
-}
-
-// بدون AI (مطفي أو خلص السقف): إذا انحكى عن الفحص بآخر المحادثة → آخر ملف
-// (وإذا آخر ملف صورة: كل الصور اللي انبعتت معها، لأنها غالباً صفحات نفس السيرة)
-function fallbackDecision(chatId, files) {
-  const talkedAboutCheck = db.history(chatId, 15).some((m) => m.type === 'chat' && wantsCheck(m.body));
-  if (!talkedAboutCheck) return { action: 'ignore', files: [], reason: 'ما انحكى عن فحص (بدون AI)' };
-  const last = files[files.length - 1];
-  const picked = last.type === 'image'
-    ? files.map((f, i) => [f, i + 1]).filter(([f]) => f.type === 'image' && last.ts - f.ts <= 120).map(([, n]) => n)
-    : [files.length];
-  return { action: 'check', files: picked, reason: 'انحكى عن الفحص (بدون AI)' };
-}
-
-const timers = new Map();
-const decisionsToday = new Map(); // chatId → { day, n }
-
-function schedule(chatId, ms, sender, wa) {
-  clearTimeout(timers.get(chatId));
-  timers.set(chatId, setTimeout(() => {
-    timers.delete(chatId);
-    decide(chatId, sender, wa).catch((err) => console.error('decide error:', err.message));
-  }, ms));
-}
-
-function underDailyLimit(chatId) {
-  const day = new Date().toDateString();
-  const c = decisionsToday.get(chatId);
-  const n = c && c.day === day ? c.n : 0;
-  if (n >= MAX_DECISIONS_PER_DAY) return false;
-  decisionsToday.set(chatId, { day, n: n + 1 });
+function rememberPhone(chatId, phone, sender) {
+  const job = jobWaitingPhone(chatId);
+  if (!job) return false;
+  db.db.prepare('UPDATE file_checks SET owner_phone = ? WHERE id = ?').run(phone, job.id);
+  if (job.status === 'ready') sendOffer(job.id, sender);
   return true;
 }
 
-async function decide(chatId, sender, wa) {
+// الزر بيظهر بعد ما النتيجة تجهز والرقم يكون عندنا
+function sendOffer(jobId, sender) {
+  const job = getJob(jobId);
+  if (!job?.owner_phone || job.status !== 'ready' || !job.reply_id) return;
+  const updated = db.db.prepare(`UPDATE file_checks SET status = 'offer' WHERE id = ? AND status = 'ready'`).run(jobId);
+  if (!updated.changes) return;
+  reply(job.chat_id, 'offer', `لإرسال نتيجة الفحص تلقائياً للرقم ${job.owner_phone} اضغط الزر، أو اكتب: أرسل`, sender, {
+    buttons: [{ id: `fwd:${jobId}`, body: SEND_BUTTON }],
+  });
+}
+
+function forwardCheck(chatId, jobId, sender) {
+  const job = getJob(jobId);
+  if (!job || job.chat_id !== chatId || job.status !== 'offer') return false;
+  const result = db.getReply(job.reply_id);
+  if (!result?.text) return false;
+  const updated = db.db.prepare(`UPDATE file_checks SET status = 'forwarded' WHERE id = ? AND status = 'offer'`).run(jobId);
+  if (!updated.changes) return false;
+  const ownerId = `${job.owner_phone}@c.us`;
+  db.saveChat({ id: ownerId, phone: job.owner_phone });
+  reply(ownerId, 'result', result.text, sender, { attachment: result.attachment, note: `تحويل الفحص #${jobId}`, deliver: true });
+  reply(chatId, 'ack', `تم إرسال الفحص للرقم ${job.owner_phone}`, sender);
+  return true;
+}
+
+// الفحص خلص: النتيجة للي بعت الملف، والزر إذا الرقم وصل
+function settleJob(jobId, out, sender) {
+  const job = getJob(jobId);
+  if (!job || job.status !== 'checking') return;
+  const result = out?.replyId ? db.getReply(out.replyId) : null;
+  if (!result?.text || out?.error) {
+    db.db.prepare('UPDATE file_checks SET status = ?, reply_id = ? WHERE id = ?').run('failed', out?.replyId || null, jobId);
+    if (!result?.text) reply(job.chat_id, 'ack', 'ما قدرنا نكمل الفحص، رح نرجعلك', sender);
+    return;
+  }
+  db.db.prepare('UPDATE file_checks SET status = ?, reply_id = ? WHERE id = ?').run('ready', result.id, jobId);
+  sender.enqueue(result.id);
+  if (getJob(jobId).owner_phone) sendOffer(jobId, sender);
+  else reply(job.chat_id, 'ask_phone', 'ابعت رقم صاحب الملف عشان نبعتله نتيجة الفحص', sender);
+}
+
+async function startJob(chatId, msgIds, sender, wa) {
+  if (!settings.get().enabled) return;
   const chat = db.getChat(chatId);
-  if (!settings.get().enabled || !chat || chat.muted || usedCheck(chat)) return null;
-  const files = pendingFiles(chatId);
-  if (!files.length || !underDailyLimit(chatId)) return null;
+  if (!chat || chat.muted) return;
+  const since = chat.files_since || 0;
+  const rows = msgIds
+    .map((id) => db.db.prepare('SELECT id, type, body, ts FROM messages WHERE id = ? AND chat_id = ?').get(id, chatId))
+    .filter((m) => m && m.ts > since);
+  if (!rows.length) return;
 
-  const d = (await askAi(chatId, files)) || fallbackDecision(chatId, files);
-  console.log(`decision ${chatId}: ${d.action} ${JSON.stringify(d.files)} — ${d.reason}`);
-  // ممكن الموظف فحص بإيده أو الرقم انسكت واحنا بنستنى الـAI
-  const fresh = db.getChat(chatId);
-  if (d.action !== 'check' || fresh.muted || usedCheck(fresh)) return d;
-
-  let picked = d.files.map((n) => files[n - 1]).filter(Boolean);
-  if (!picked.length) picked = [files[files.length - 1]];
-  markChecked(chatId);
-  reply(chatId, 'ack', settings.get().ackText, sender);
-  runCheck(chatId, picked, wa, sender, d.reason);
-  return d;
+  const jobId = Number(db.db.prepare(`INSERT INTO file_checks (chat_id, msg_ids, status, created) VALUES (?, ?, 'checking', ?)`)
+    .run(chatId, JSON.stringify(rows.map((m) => m.id)), db.now()).lastInsertRowid);
+  const early = db.history(chatId, 12).filter((m) => !m.from_me && m.type === 'chat' && m.ts >= rows[0].ts);
+  for (const m of early) {
+    const phone = parsePhone(m.body, chat.phone);
+    if (!phone) continue;
+    db.db.prepare('UPDATE file_checks SET owner_phone = ? WHERE id = ?').run(phone, jobId);
+    break;
+  }
+  reply(chatId, 'ask_phone', ASK_PHONE, sender);
+  reply(chatId, 'checking', CHECKING, sender);
+  db.updateChat(chatId, { stage: RECEIVED });
+  settleJob(jobId, await runCheck(chatId, rows, wa, sender, 'ملف من الزبون'), sender);
 }
 
 // فحص بإيدك من الداشبورد (بدون الرد الآلي)
@@ -196,13 +218,17 @@ async function runCheck(chatId, msgs, wa, sender, why = '') {
   const names = msgs.map((m) => (m.body || '').split('\n')[0].replace(/^📄 /, '') || 'ملف').join('، ');
   const reqId = Number(db.db.prepare('INSERT INTO requests (chat_id, msg_ids, files, reason, started) VALUES (?, ?, ?, ?, ?)')
     .run(chatId, JSON.stringify(msgs.map((m) => m.id)), names, why, db.now()).lastInsertRowid);
-  const finish = (replyId, error = null) => db.db.prepare('UPDATE requests SET finished = ?, reply_id = ?, error = ? WHERE id = ?').run(db.now(), replyId, error, reqId);
+  const finish = (replyId, error = null) => {
+    db.db.prepare('UPDATE requests SET finished = ?, reply_id = ?, error = ? WHERE id = ?').run(db.now(), replyId, error, reqId);
+    return replyId;
+  };
   try {
     const out = await checkFiles(chatId, msgs, wa, sender, why);
     finish(out.replyId, out.error || null);
+    return out;
   } catch (err) {
     const note = `الفحص فشل: ${friendlyError(err.message)}`;
-    finish(failed(chatId, note), note);
+    return { replyId: finish(failed(chatId, note), note), error: note };
   }
 }
 
@@ -265,16 +291,34 @@ async function handle(msg, sender, wa) {
   // رسالة البوت أو اللوحة انحفظت أصلاً لما انبعتت: ما منكررها
   if (echo && db.sentRecently(msg.chatId, shown)) return;
   db.saveMessage({ ...msg, body: shown, byBot: echo });
+  // رسائلك إنت (رقم البوت) ما بنرد عليها: الزر والنتيجة للمستخدم اللي بعت الملف
   if (msg.fromMe) return;
   if (!settings.get().enabled) return;
   const chat = db.getChat(msg.chatId);
-  if (chat.muted || usedCheck(chat)) return;
+  if (chat.muted) return;
 
-  // ملف جديد ← منستنى يخلص ومنقرر. كلام بعد ملفات ("افحصوا آخر وحدة") ← منقرر من جديد
-  if (FILE_TYPES.has(msg.type)) schedule(msg.chatId, WAIT_AFTER_FILE_MS, sender, wa);
-  else if (msg.type === 'chat' && (timers.has(msg.chatId) || pendingFiles(msg.chatId).length)) {
-    schedule(msg.chatId, timers.has(msg.chatId) ? WAIT_AFTER_FILE_MS : WAIT_AFTER_TEXT_MS, sender, wa);
+  const selected = String(msg.selectedId || '');
+  if (/^fwd:\d+$/.test(selected)) {
+    forwardCheck(msg.chatId, Number(selected.slice(4)), sender);
+    return;
+  }
+
+  if (FILE_TYPES.has(msg.type)) {
+    scheduleFiles(msg.chatId, msg.id, sender, wa);
+    return;
+  }
+  if (!['chat', 'buttons_response', 'template_button_reply'].includes(msg.type)) return;
+
+  const phone = parsePhone(msg.body, chat.phone);
+  if (phone && rememberPhone(msg.chatId, phone, sender)) return;
+  const offer = openOffer(msg.chatId);
+  if (offer && wantsForward(msg.body)) {
+    forwardCheck(msg.chatId, offer.id, sender);
+    return;
+  }
+  if (jobWaitingPhone(msg.chatId) && looksLikePhoneAttempt(msg.body)) {
+    reply(msg.chatId, 'ask_phone', 'ابعت رقم صاحب الملف مع مقدمة الدولة، مثل: 962791234567', sender);
   }
 }
 
-module.exports = { REAL_TYPES, handle, decide, checkNow, wantsCheck, usedCheck, sendDueResults, startAutoSend, RECEIVED };
+module.exports = { REAL_TYPES, handle, checkNow, wantsCheck, usedCheck, sendDueResults, startAutoSend, RECEIVED, parsePhone, settleJob };

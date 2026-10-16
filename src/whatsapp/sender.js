@@ -110,6 +110,25 @@ class SafeSender extends EventEmitter {
     await quick(this.wa.typing(chatId, true));
     await sleep(Math.max(1.5, Math.min(text.length / rand(7, 13), S.MAX_TYPING_SEC)) * 1000);
 
+    // الزر بينبعت لمحادثة المستخدم. إذا الواتس رفض الأزرار، النص بينبعت لحاله و"أرسل" بتكفي
+    if (reply.buttons) {
+      let buttons = [];
+      try {
+        buttons = JSON.parse(reply.buttons);
+      } catch {}
+      if (buttons.length && this.wa.sendButtons) {
+        this.echoes.set(`${chatId}|${text}`, echo);
+        try {
+          const msgId = await withTimeout(this.wa.sendButtons(chatId, text, buttons), SEND_TIMEOUT_MS, 'الزر');
+          this.sentAt.push(Date.now());
+          this._record(reply, msgId, 'chat', text, echo.by);
+          return;
+        } catch (err) {
+          console.error('button failed, sending the text without it:', err.message);
+        }
+      }
+    }
+
     // صورة الدرجة فوق ونص الفحص تحتها برسالة وحدة
     if (reply.attachment && fs.existsSync(reply.attachment)) {
       const image = fs.readFileSync(reply.attachment);

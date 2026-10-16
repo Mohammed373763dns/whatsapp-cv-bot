@@ -30,6 +30,7 @@ db.db.prepare(`DELETE FROM chats WHERE id NOT IN (SELECT chat_id FROM messages) 
 require('./shared/system').startMemoryLog();
 // طلبات كانت عم تنفحص لما البوت طفي: ما رح تكمل لحالها، فبتطلع "الفحص فشل" مع زر "افحص مرة تانية"
 db.db.prepare(`UPDATE requests SET finished = ?, error = 'البوت انعاد تشغيله وقت الفحص — افحصه مرة تانية' WHERE finished IS NULL`).run(db.now());
+db.db.prepare(`UPDATE file_checks SET status = 'failed' WHERE status = 'checking'`).run();
 
 // التكرار اللي انحفظ قبل التصليح (رسائل البوت واللوحة مرتين بنفس النص وبنفس الدقايق): منخلي وحدة
 db.db.prepare(`DELETE FROM messages WHERE from_me = 1 AND by_bot > 0 AND rowid NOT IN (

@@ -75,6 +75,18 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_requests_chat ON requests(chat_id);
 
+  -- فحص ملف جايه من الزبون: منسأل عن رقم صاحب الملف، ومنجهز زر تحويل النتيجة
+  CREATE TABLE IF NOT EXISTS file_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT,
+    msg_ids TEXT,
+    owner_phone TEXT,
+    status TEXT,                    -- checking | ready | offer | forwarded | failed
+    reply_id INTEGER,
+    created INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_file_checks_chat ON file_checks(chat_id, status);
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -82,7 +94,7 @@ db.exec(`
 `);
 
 // أعمدة انضافت بعدين (للقواعد القديمة)
-for (const sql of ['ALTER TABLE chats ADD COLUMN muted INTEGER DEFAULT 0', 'ALTER TABLE chats ADD COLUMN files_since INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN note TEXT', 'ALTER TABLE replies ADD COLUMN queued_at INTEGER', 'ALTER TABLE replies ADD COLUMN attachment TEXT', 'ALTER TABLE replies ADD COLUMN pace TEXT', 'ALTER TABLE chats ADD COLUMN files_from INTEGER DEFAULT 0']) {
+for (const sql of ['ALTER TABLE chats ADD COLUMN muted INTEGER DEFAULT 0', 'ALTER TABLE chats ADD COLUMN files_since INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN note TEXT', 'ALTER TABLE replies ADD COLUMN queued_at INTEGER', 'ALTER TABLE replies ADD COLUMN attachment TEXT', 'ALTER TABLE replies ADD COLUMN pace TEXT', 'ALTER TABLE chats ADD COLUMN files_from INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN buttons TEXT']) {
   try {
     db.exec(sql);
   } catch {}
@@ -103,8 +115,8 @@ const stmt = {
     SELECT * FROM (SELECT * FROM messages WHERE chat_id = ? ORDER BY ts DESC LIMIT ?)
     ORDER BY ts ASC`),
   addReply: db.prepare(`
-    INSERT INTO replies (chat_id, scenario, intent, text, source, status, created, note, attachment, pace)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+    INSERT INTO replies (chat_id, scenario, intent, text, source, status, created, note, attachment, pace, buttons)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
   setSetting: db.prepare(`
     INSERT INTO settings (key, value) VALUES (?, ?)
@@ -146,7 +158,8 @@ module.exports = {
   },
 
   addReply(r) {
-    const info = stmt.addReply.run(r.chatId, r.scenario, r.intent || null, r.text, r.source, r.status || 'pending', now(), r.note || null, r.attachment || null, r.pace || null);
+    const buttons = r.buttons ? (typeof r.buttons === 'string' ? r.buttons : JSON.stringify(r.buttons)) : null;
+    const info = stmt.addReply.run(r.chatId, r.scenario, r.intent || null, r.text, r.source, r.status || 'pending', now(), r.note || null, r.attachment || null, r.pace || null, buttons);
     return Number(info.lastInsertRowid);
   },
   getReply: (id) => db.prepare('SELECT * FROM replies WHERE id = ?').get(id),

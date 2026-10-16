@@ -1,5 +1,5 @@
 process.env.BOT_DB_FILE = ':memory:';
-process.env.XAI_API_KEY = ''; // بدون AI: القرار بالقاعدة الاحتياطية
+process.env.XAI_API_KEY = '';
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -12,98 +12,106 @@ const sender = { enqueue: (id) => sent.push(db.getReply(id)), isBotEcho: () => f
 const wa = { downloadMedia: async () => null };
 let n = 0;
 const now = () => db.now();
-const msg = (chatId, type, body = '', fromMe = false) =>
-  flow.handle({ id: `m${++n}`, chatId, fromMe, type, body, timestamp: now() - 100 + n, name: 'زبون', filename: type === 'document' ? body : null }, sender, wa);
-const kinds = () => sent.map((r) => r.scenario);
-const result = (chatId) => db.db.prepare(`SELECT * FROM replies WHERE chat_id = ? AND scenario = 'result'`).get(chatId);
+const msg = (chatId, type, body = '', extra = {}) =>
+  flow.handle({
+    id: `m${++n}`,
+    chatId,
+    fromMe: false,
+    type,
+    body,
+    timestamp: now() - 100 + n,
+    name: 'مستخدم',
+    phone: '962799000000',
+    filename: type === 'document' ? body : null,
+    ...extra,
+  }, sender, wa);
+const texts = () => sent.map((r) => r.text);
 const tick = async (t, ms) => {
   t.mock.timers.tick(ms);
-  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
 };
 
+test('parsePhone', () => {
+  assert.strictEqual(flow.parsePhone('962791112233'), '962791112233');
+  assert.strictEqual(flow.parsePhone('+962 79 111 2233'), '962791112233');
+  assert.strictEqual(flow.parsePhone('0791112233', '962799000000'), '962791112233');
+  assert.strictEqual(flow.parsePhone('مرحبا'), null);
+  assert.strictEqual(flow.parsePhone('0791112233'), null);
+});
+
 test('wantsCheck', () => {
-  for (const t of ['بدي افحص سيرتي', 'فحص مجاني', 'ابعتلنا سيرتك الذاتية للفحص', 'ممكن تقييم للسيرة']) assert.ok(flow.wantsCheck(t), t);
-  for (const t of ['مرحبا', 'بكم السيرة', 'شكرا']) assert.ok(!flow.wantsCheck(t), t);
+  for (const s of ['بدي افحص سيرتي', 'فحص مجاني', 'check']) assert.ok(flow.wantsCheck(s), s);
+  for (const s of ['مرحبا', 'شكرا']) assert.ok(!flow.wantsCheck(s), s);
 });
 
-test('the bot never answers plain talk (the employee does)', async (t) => {
+test('plain talk and a file from the bot account get no reply', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   sent.length = 0;
-  await msg('a@c.us', 'chat', 'بدي افحص سيرتي');
-  await msg('a@c.us', 'chat', 'بكم السيرة؟');
-  await tick(t, 60e3);
-  assert.deepStrictEqual(kinds(), []);
+  await msg('a@c.us', 'chat', 'مرحبا');
+  await flow.handle({ id: `m${++n}`, chatId: 'me@c.us', fromMe: true, type: 'document', body: 'cv.pdf', timestamp: now(), filename: 'cv.pdf' }, sender, wa);
+  await tick(t, 20e3);
+  assert.deepStrictEqual(texts(), []);
 });
 
-test('employee asked for the CV → customer sends it → ack + check, once per number', async (t) => {
+test('a file asks the user for the owner number, then says the check is running', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   sent.length = 0;
-  await msg('b@c.us', 'chat', 'بدي فحص مجاني');
-  await msg('b@c.us', 'chat', 'اهلا وسهلا 🌷 ابعتلنا سيرتك الذاتية للفحص', true);
   await msg('b@c.us', 'document', 'cv.pdf');
-  assert.deepStrictEqual(kinds(), [], 'waits for the customer to finish');
-  await tick(t, 21e3);
-  assert.deepStrictEqual(kinds(), ['ack']);
-  assert.strictEqual(db.getChat('b@c.us').stage, flow.RECEIVED);
-  // الملف ما نزل (wa وهمي) ← نتيجة فاضية بتستناك بالداشبورد
-  assert.strictEqual(result('b@c.us').status, 'pending');
-
-  await msg('b@c.us', 'document', 'cv2.pdf');
-  await tick(t, 21e3);
-  assert.deepStrictEqual(kinds(), ['ack'], 'once per number');
+  assert.deepStrictEqual(texts(), [], 'waits so several pages count as one file');
+  await tick(t, 9e3);
+  assert.deepStrictEqual(texts().slice(0, 2), ['شو رقم صاحب الملف؟', 'جاري الفحص']);
+  assert.ok(texts().every((s) => sent[texts().indexOf(s)].chat_id === 'b@c.us'));
+  assert.ok(texts().some((s) => s.includes('ما قدرنا نكمل')));
 });
 
-test('a file with no check context is ignored', async (t) => {
+test('the send button is queued to the user, and their tap delivers the check to the owner number', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   sent.length = 0;
-  await msg('c@c.us', 'chat', 'مرحبا هاي الشهادة');
-  await msg('c@c.us', 'document', 'certificate.pdf');
-  await tick(t, 21e3);
-  assert.deepStrictEqual(kinds(), []);
-  assert.ok(!result('c@c.us'));
+  await msg('u@c.us', 'document', 'cv.pdf');
+  await msg('u@c.us', 'chat', '0791112233');
+  await tick(t, 9e3);
+  const job = db.db.prepare(`SELECT * FROM file_checks WHERE chat_id = 'u@c.us'`).get();
+  assert.strictEqual(job.owner_phone, '962791112233');
+
+  const replyId = db.addReply({ chatId: 'u@c.us', scenario: 'result', text: 'نتيجة الفحص', source: 'bot' });
+  db.db.prepare(`UPDATE file_checks SET status = 'checking' WHERE id = ?`).run(job.id);
+  flow.settleJob(job.id, { replyId }, sender);
+
+  const offer = sent.find((r) => r.scenario === 'offer');
+  assert.ok(offer, 'button message exists');
+  assert.strictEqual(offer.chat_id, 'u@c.us', 'the button goes to the user, not the bot account');
+  assert.ok(offer.text.includes('962791112233'));
+  const buttons = JSON.parse(offer.buttons);
+  assert.strictEqual(buttons[0].body, 'أرسل الفحص لهذا الرقم');
+  assert.ok(sent.some((r) => r.id === replyId && r.chat_id === 'u@c.us'), 'the result itself is sent to the user');
+
+  sent.length = 0;
+  await msg('u@c.us', 'buttons_response', 'أرسل الفحص لهذا الرقم', { selectedId: buttons[0].id });
+  const forwarded = sent.find((r) => r.scenario === 'result');
+  assert.strictEqual(forwarded.chat_id, '962791112233@c.us');
+  assert.strictEqual(forwarded.text, 'نتيجة الفحص');
+  assert.ok(sent.some((r) => r.chat_id === 'u@c.us' && r.text.includes('تم إرسال الفحص')));
 });
 
-test('several CVs → the last one is checked; CV pages as images → all images', async (t) => {
+test('a second file is checked too, and أرسل works like the button', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const checked = [];
-  const wa2 = { downloadMedia: async (id) => (checked.push(id), null) };
-  const send = (chatId, type, body = '', fromMe = false) =>
-    flow.handle({ id: `m${++n}`, chatId, fromMe, type, body, timestamp: now() - 100 + n, name: 'زبون' }, sender, wa2);
+  sent.length = 0;
+  await msg('c@c.us', 'document', 'one.pdf');
+  await tick(t, 9e3);
+  await msg('c@c.us', 'document', 'two.pdf');
+  await tick(t, 9e3);
+  assert.strictEqual(texts().filter((s) => s === 'شو رقم صاحب الملف؟').length, 2);
 
-  await send('d@c.us', 'chat', 'بدي افحص سيرتي');
-  await send('d@c.us', 'document', 'old.pdf');
-  await send('d@c.us', 'document', 'new.pdf');
-  await send('d@c.us', 'chat', 'افحصوا اخر وحدة');
-  await tick(t, 21e3);
-  assert.deepStrictEqual(checked, [`m${n - 1}`]);
+  const job = db.db.prepare(`SELECT * FROM file_checks WHERE chat_id = 'c@c.us' ORDER BY id DESC LIMIT 1`).get();
+  const replyId = db.addReply({ chatId: 'c@c.us', scenario: 'result', text: 'نتيجة', source: 'bot' });
+  db.db.prepare(`UPDATE file_checks SET status = 'ready', reply_id = ?, owner_phone = ? WHERE id = ?`).run(replyId, '970599111222', job.id);
+  sent.length = 0;
+  await msg('c@c.us', 'chat', 'أرسل');
+  assert.ok(!sent.some((r) => r.scenario === 'result'), 'no phone was waiting and no offer yet');
 
-  checked.length = 0;
-  await send('e@c.us', 'chat', 'فحص مجاني');
-  await send('e@c.us', 'image');
-  await send('e@c.us', 'image');
-  await tick(t, 21e3);
-  assert.deepStrictEqual(checked, [`m${n - 1}`, `m${n}`]);
-});
-
-test('after "reset bot record": the old checked CV is ignored, the new one is checked', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const checked = [];
-  const wa2 = { downloadMedia: async (id) => (checked.push(id), null) };
-  const send = (type, body = '') => flow.handle({ id: `m${++n}`, chatId: 'r@c.us', fromMe: false, type, body, timestamp: now() - 100 + n, name: 'زبون' }, sender, wa2);
-  await send('chat', 'بدي افحص');
-  await send('document', 'old.pdf');
-  await tick(t, 21e3);
-  assert.deepStrictEqual(checked, [`m${n}`]);
-
-  // نفس اللي بيعمله زر "امسح سجل البوت"
-  db.updateChat('r@c.us', { stage: 'new', files_since: now() - 100 + n });
-  checked.length = 0;
-  await send('chat', 'بدي افحص');
-  await tick(t, 10e3);
-  assert.deepStrictEqual(checked, [], 'no check on the old file');
-  await send('document', 'new.pdf');
-  await tick(t, 21e3);
-  assert.deepStrictEqual(checked, [`m${n}`]);
+  db.db.prepare(`UPDATE file_checks SET status = 'offer' WHERE id = ?`).run(job.id);
+  await msg('c@c.us', 'chat', 'أرسل');
+  assert.strictEqual(sent.find((r) => r.scenario === 'result').chat_id, '970599111222@c.us');
 });
 
 test('muted number or bot off → nothing', async (t) => {
@@ -111,13 +119,11 @@ test('muted number or bot off → nothing', async (t) => {
   sent.length = 0;
   db.saveChat({ id: 'f@c.us' });
   db.updateChat('f@c.us', { muted: 1 });
-  await msg('f@c.us', 'chat', 'بدي افحص');
   await msg('f@c.us', 'document', 'cv.pdf');
   settings.update({ enabled: false });
-  await msg('g@c.us', 'chat', 'بدي افحص');
   await msg('g@c.us', 'document', 'cv.pdf');
-  await tick(t, 21e3);
-  assert.deepStrictEqual(kinds(), []);
+  await tick(t, 9e3);
+  assert.deepStrictEqual(texts(), []);
   settings.update({ enabled: true });
 });
 
@@ -130,8 +136,8 @@ test('result waits for review, then sends itself after the delay', () => {
   };
   const fresh = add('ملاحظات', 5);
   const due = add('ملاحظات', 16);
-  const empty = add('', 30); // فحص فاشل: بدها إنت
-  const ancient = add('ملاحظات', 15 + 4 * 60); // البوت كان طافي: ما بتنبعت لحالها
+  const empty = add('', 30);
+  const ancient = add('ملاحظات', 15 + 4 * 60);
   const ids = flow.sendDueResults(sender);
   assert.ok(ids.includes(due));
   for (const id of [fresh, empty, ancient]) assert.ok(!ids.includes(id));
