@@ -12,40 +12,30 @@
 </head>
 <body>
 <div class="app" id="app">
-  <header class="bar">
-    <div class="brand">
-      <span class="logo" aria-hidden="true">✓</span>
-      <b>بوت الفحص</b>
-    </div>
-    <div class="wa" id="wa"></div>
-    <div class="spacer"></div>
-    <div class="tabs" role="tablist">
-      <button role="tab" data-view="chats">المحادثات</button>
-      <button role="tab" data-view="requests">الطلبات <span class="tab-count" id="req-count"></span></button>
-    </div>
-    <label class="switch" title="تشغيل أو إيقاف البوت لكل الأرقام">
-      <input type="checkbox" id="enabled">
-      <span class="track"></span>
-      <b id="enabled-label"></b>
-    </label>
-    <button class="icon-btn" id="open-settings" title="الإعدادات" aria-label="الإعدادات"></button>
-  </header>
-
   <div class="body">
     <aside class="side">
-      <div class="side-top">
-        <input type="search" id="q" placeholder="دوّر على اسم أو رقم" aria-label="بحث">
-        <div class="select-wrap">
-          <select id="filter" aria-label="فلترة المحادثات"></select>
+      <header class="side-head">
+        <span class="logo" aria-hidden="true">✓</span>
+        <div class="brand-text">
+          <b>بوت الفحص</b>
+          <div class="wa" id="wa"></div>
         </div>
-      </div>
-      <div class="items" id="items"></div>
-    </aside>
+        <label class="switch" title="تشغيل أو إيقاف البوت لكل الأرقام" aria-label="تشغيل البوت">
+          <input type="checkbox" id="enabled">
+          <span class="track"></span>
+        </label>
+        <button class="icon-btn" id="open-settings" title="الإعدادات" aria-label="الإعدادات"></button>
+      </header>
 
-    <section class="requests" id="requests">
-      <div class="req-head">
-        <b>طلبات الفحص</b>
-        <div class="select-wrap"><select id="req-filter" aria-label="فلترة الطلبات">
+      <div class="tabs" role="tablist">
+        <button role="tab" data-view="chats">المحادثات</button>
+        <button role="tab" data-view="requests">الطلبات <span class="tab-count" id="req-count"></span></button>
+      </div>
+
+      <div class="side-tools">
+        <input type="search" id="q" placeholder="دوّر على اسم أو رقم" aria-label="بحث">
+        <div class="select-wrap only-chats"><select id="filter" aria-label="فلترة المحادثات"></select></div>
+        <div class="select-wrap only-requests"><select id="req-filter" aria-label="فلترة الطلبات">
           <option value="pending">المعلقة</option>
           <option value="all">الكل</option>
           <option value="sent">انبعتت</option>
@@ -53,8 +43,10 @@
           <option value="dismissed">متجاهلة</option>
         </select></div>
       </div>
-      <div class="req-list" id="req-list"></div>
-    </section>
+
+      <div class="items only-chats" id="items"></div>
+      <div class="items only-requests" id="req-list"></div>
+    </aside>
 
     <section class="conv" id="conv">
       <div class="conv-empty">

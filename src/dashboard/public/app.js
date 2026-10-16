@@ -103,9 +103,13 @@ function renderBar() {
   // الرام على السيرفر: إذا قربت تخلص صفحة الواتس بتعلق، فمنبيّنها
   const m = S.memory;
   const mem = m?.percent ? `<span class="mem ${m.percent >= 85 ? 'high' : ''}" title="الرام المستخدمة على السيرفر: ${m.usedMb} من ${m.limitMb} ميجا">الرام ${m.percent}%</span>` : '';
-  patch($('#wa'), `<span class="dot ${dot}"></span><span>واتساب ${esc(WA[key] || S.whatsapp.status)}</span>${S.whatsapp.account?.phone ? `<span class="acct">· ${phone(S.whatsapp.account.phone)}</span>` : ''}${mem}${!S.whatsapp.ready && !S.whatsapp.qr && key !== 'logging_out' ? '<button class="pill-btn" data-relink>اعرض كود الربط</button>' : ''}`);
+  // سطر صغير تحت اسم البوت: حالة الواتس والرقم والرام (وإذا البوت موقّف بالأحمر)
+  const off = S.enabled ? '' : '<span class="off">· البوت موقّف</span>';
+  const acct = S.whatsapp.account?.phone ? `<span title="الرقم المربوط">· ${phone(S.whatsapp.account.phone)}</span>` : '';
+  const relink = !S.whatsapp.ready && !S.whatsapp.qr && key !== 'logging_out' ? '<button class="pill-btn" data-relink>اعرض كود الربط</button>' : '';
+  patch($('#wa'), `<span class="dot ${dot}"></span><span>${esc(WA[key] || S.whatsapp.status)}</span>${off || acct}${mem}${relink}`);
   $('#enabled').checked = S.enabled;
-  $('#enabled-label').textContent = S.enabled ? 'البوت شغّال' : 'البوت موقّف';
+  $('#enabled').closest('.switch').title = S.enabled ? 'البوت شغّال — اكبس لتوقيفه' : 'البوت موقّف — اكبس لتشغيله';
   $('#req-count').textContent = S.pendingRequests || '';
 
   const qr = $('#qr');
@@ -234,6 +238,7 @@ function openChat(id) {
   try { sessionStorage.setItem('chat', id); } catch {}
   $('#app').classList.add('show-conv');
   renderList();
+  if (view === 'requests') renderRequests();
   renderConv();
 }
 
@@ -277,28 +282,24 @@ function reqDetail(q) {
   return '';
 }
 
+// الطلبات بالعمود الجانبي (مكان قائمة المحادثات). الكبسة على الطلب بتفتح محادثته جنبه
 async function renderRequests() {
-  const list = await api(`/api/requests?filter=${enc($('#req-filter').value)}`);
-  const empty = { pending: 'ما في طلبات معلقة 👌', sent: 'لسا ما انبعتت ولا نتيجة', failed: 'ما في طلبات فشلت', dismissed: 'ما في طلبات متجاهلة' }[$('#req-filter').value] || 'لسا ما في طلبات';
+  const filterVal = $('#req-filter').value;
+  const q0 = $('#q').value.trim();
+  const list = (await api(`/api/requests?filter=${enc(filterVal)}`))
+    .filter((q) => !q0 || `${q.name || ''} ${q.phone || ''}`.includes(q0));
+  const empty = { pending: 'ما في طلبات معلقة 👌', sent: 'لسا ما انبعتت ولا نتيجة', failed: 'ما في طلبات فشلت', dismissed: 'ما في طلبات متجاهلة' }[filterVal] || 'لسا ما في طلبات';
   patch($('#req-list'), list.length
     ? list.map((q) => {
       const bad = q.status === 'check_failed' || q.status === 'send_failed';
-      return `<div class="req s-${q.status}">
-        <span class="avatar">${initial(q)}</span>
-        <div class="main">
-          <div class="l1"><b>${nameOf(q)}</b><span class="st ${q.status}">${REQ_STATUS[q.status]}</span><span class="time">${when(q.started)}</span></div>
-          <span class="file">📄 ${esc(q.files || 'ملف')}</span>
-          <div class="detail ${bad ? 'bad' : ''}">${esc(reqDetail(q))}</div>
-        </div>
-        <div class="acts">
-          ${q.status === 'ready' ? `<button class="btn primary" data-send-now="${q.reply_id}">ابعت هلأ</button>` : ''}
-          ${q.status === 'check_failed' ? `<button class="btn primary" data-recheck="${q.id}">افحص مرة تانية</button>` : ''}
-          ${q.status === 'send_failed' ? `<button class="btn primary" data-retry="${q.reply_id}">حاول مرة تانية</button>` : ''}
-          <button class="btn" data-open-chat="${esc(q.chat_id)}">افتح المحادثة</button>
-        </div>
+      return `<div class="req s-${q.status} ${q.chat_id === openId ? 'on' : ''}" role="button" tabindex="0" data-open="${esc(q.chat_id)}">
+        <div class="l1"><b>${nameOf(q)}</b><span class="st ${q.status}">${REQ_STATUS[q.status]}</span><span class="time">${when(q.started)}</span></div>
+        <span class="file">📄 ${esc(q.files || 'ملف')}</span>
+        <div class="detail ${bad ? 'bad' : ''}">${esc(reqDetail(q))}</div>
+        <div class="acts">${q.status === 'ready' ? `<button class="btn primary" data-send-now="${q.reply_id}">ابعت هلأ</button>` : ''}${q.status === 'check_failed' ? `<button class="btn primary" data-recheck="${q.id}">افحص مرة تانية</button>` : ''}${q.status === 'send_failed' ? `<button class="btn primary" data-retry="${q.reply_id}">حاول مرة تانية</button>` : ''}</div>
       </div>`;
     }).join('')
-    : `<div class="conv-empty">${empty}</div>`);
+    : `<div class="list-empty">${empty}</div>`);
 }
 
 function setView(v) {
@@ -321,7 +322,7 @@ async function refresh() {
     first = false;
     renderList();
     if (view === 'requests') await renderRequests();
-    else await renderConv();
+    await renderConv();
   } catch {
     patch($('#wa'), '<span class="dot bad"></span><span>اللوحة مش قادرة توصل للبوت</span>');
   }
@@ -375,7 +376,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('click', async (e) => {
-  const t = e.target.closest('button, img[data-zoom]');
+  const t = e.target.closest('button, img[data-zoom], [data-open]');
   if (!t) return;
   const done = (r, msg) => {
     if (r?.error) return toast(r.error, true);
