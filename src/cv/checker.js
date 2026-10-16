@@ -180,16 +180,18 @@ async function check(input) {
       { role: 'user', content },
     ],
   });
-  return { text: withClosing(sanitize(text, facts), cfg.closing), usd, mode, facts };
+  return { text: fixPageNote(sanitize(text, facts)), usd, mode, facts };
 }
 
 // "حاول تختصرها لصفحتين و نص" (الصيغة القديمة) ← الحد الأقصى 3 صفحات
 const fixPageNote = (text) => text.replace(/حاولي? (تختصر|تختصري)(ها|يها) ل(صفحتين|٢ صفحات|2 صفحات)\s*و\s*نص/g, 'خليها كحد أقصى 3 صفحات');
 
-// جملة العرض بآخر كل فحص (للأنثى "حابة"). الجنس من افتتاح الفحص ("يعطيكي العافية استاذة")
-function withClosing(text, closing) {
+// جملة العرض بآخر الفحص (للأنثى "حابة"). الجنس من افتتاح الفحص ("يعطيكي العافية استاذة").
+// ما بتنكتب إذا الدرجة فوق 80 (السيرة منيحة)، وإذا ما في درجة بتنكتب
+const CLOSING_MAX_SCORE = 80;
+function withClosing(text, closing, score = null) {
   const body = fixPageNote(text);
-  if (!closing) return body;
+  if (!closing || (typeof score === 'number' && score > CLOSING_MAX_SCORE)) return body;
   const female = /يعطيكي|استاذة|انسة|آنسة|دكتورة|مهندسة/.test(body.split('\n')[0]);
   const line = female ? closing.female : closing.male;
   return line ? `${body}\n\n${line}` : body;

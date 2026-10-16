@@ -217,6 +217,7 @@ async function runCheck(chatId, msgs, wa, sender, why = '') {
     attachment = path.join(dir, `check-${Date.now()}.jpg`);
     fs.writeFileSync(attachment, opti.image);
   }
+  text = cv.withClosing(text, cfg.closing, opti && !opti.error ? opti.score : null);
   const note = [
     why,
     files.map((f) => f.filename || 'صورة').join('، '),

@@ -116,8 +116,9 @@ class SafeSender extends EventEmitter {
       this.echoes.set(`${chatId}|${text}`, echo);
       try {
         // sendImage نفسها بتجرب طريقتين (40 ثانية لكل وحدة)
-        await withTimeout(this.wa.sendImage(chatId, image, 'image/jpeg', text), SEND_TIMEOUT_MS + 15e3, 'صورة الفحص');
+        const msgId = await withTimeout(this.wa.sendImage(chatId, image, 'image/jpeg', text), SEND_TIMEOUT_MS + 15e3, 'صورة الفحص');
         this.sentAt.push(Date.now());
+        this._record(reply, msgId, 'image', `📷 صورة الفحص\n${text}`, echo.by);
         return;
       } catch (err) {
         // الصورة ما زبطت: الزبون ما بيستنى، النص بينبعت لحاله على طول والسبب بيطلع باللوحة
@@ -127,11 +128,19 @@ class SafeSender extends EventEmitter {
       }
     }
     this.echoes.set(`${chatId}|${text}`, echo);
-    await withTimeout(this.wa.sendText(chatId, text), SEND_TIMEOUT_MS, 'الرسالة');
+    const msgId = await withTimeout(this.wa.sendText(chatId, text), SEND_TIMEOUT_MS, 'الرسالة');
     this.sentAt.push(Date.now());
+    this._record(reply, msgId, 'chat', text, echo.by);
     setTimeout(() => {
       if (!this.queue.length) this.wa.goOffline?.().catch(() => {});
     }, rand(60, 150) * 1000);
+  }
+
+  // الرسالة اللي انبعتت بتنحفظ بمحادثة اللوحة على طول. نفس id تبع الواتس، فإذا الواتس رجّعها كمان ما بتتكرر
+  _record(reply, msgId, type, body, by) {
+    const id = msgId || `sent-${reply.id}`;
+    if (db.db.prepare('SELECT 1 FROM messages WHERE id = ?').get(id)) return;
+    db.saveMessage({ id, chatId: reply.chat_id, fromMe: true, type, body, timestamp: db.now(), byBot: by });
   }
 
   // بيلغي أي رسالة لهاد الرقم لسا ما انبعتت (لما تمسح سجله أو تحذفه من الداشبورد)
