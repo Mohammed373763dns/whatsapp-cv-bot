@@ -364,6 +364,35 @@ class WhatsApp extends EventEmitter {
     );
   }
 
+  // رابط الدعوة من الإعدادات → جروب البوت عضو فيه
+  async groupByInvite(code) {
+    if (!this._groupIds) this._groupIds = new Map();
+    if (this._groupIds.has(code)) return this._groupIds.get(code);
+    const id = await this.client.pupPage.evaluate(async (code) => {
+      const idOf = (info) => info?.id?._serialized || info?.gid?._serialized || info?.groupId?._serialized || (typeof info?.id === 'string' ? info.id : null);
+      try {
+        const info = await window.require('WAWebGroupQueryJob').queryGroupInvite(code);
+        const gid = idOf(info);
+        if (gid) return gid;
+      } catch {}
+      const groups = window.require('WAWebCollections').Chat.getModelsArray().filter((c) => c.id?.server === 'g.us');
+      let fetchCode;
+      try {
+        fetchCode = window.require('WAWebMexFetchGroupInviteCodeJob').fetchMexGroupInviteCode;
+      } catch {}
+      if (!fetchCode) return null;
+      for (const g of groups) {
+        try {
+          const res = await fetchCode(g.id._serialized || g.id);
+          if ((typeof res === 'string' ? res : res?.code) === code) return g.id._serialized;
+        } catch {}
+      }
+      return null;
+    }, code);
+    if (id) this._groupIds.set(code, id);
+    return id || null;
+  }
+
   // خيار واحد يضغطه المستخدم. واتساب بعرضه، بعكس أزرار الرد اللي ما عادت تبيّن
   sendPoll(chatId, title, options) {
     return this.client.pupPage.evaluate(

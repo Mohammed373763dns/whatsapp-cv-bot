@@ -82,9 +82,11 @@ test('the send button is queued to the user, and their tap delivers the check to
   const replyId = db.addReply({ chatId: 'u@c.us', scenario: 'result', text: 'نتيجة الفحص', source: 'bot' });
   db.db.prepare(`UPDATE file_checks SET status = 'checking' WHERE id = ?`).run(job.id);
   settings.update({ groupLink: 'https://chat.whatsapp.com/AbCd123' });
-  flow.settleJob(job.id, { replyId }, sender);
-  assert.ok(sent.some((r) => r.scenario === 'group' && r.chat_id === 'u@c.us' && r.text === 'https://chat.whatsapp.com/AbCd123'));
-  assert.ok(sent.some((r) => r.scenario === 'owner_phone' && r.text === 'رقم صاحب الفحص: +962791112233'));
+  await flow.settleJob(job.id, { replyId }, sender, { groupByInvite: async () => 'room@g.us' });
+  assert.ok(!sent.some((r) => String(r.text).includes('chat.whatsapp.com')), 'the invite link is not sent to the user');
+  assert.ok(sent.some((r) => r.scenario === 'owner_phone' && r.chat_id === 'u@c.us' && r.text === 'رقم صاحب الفحص: +962791112233'));
+  assert.ok(sent.some((r) => r.scenario === 'result' && r.chat_id === 'room@g.us' && r.text === 'نتيجة الفحص'));
+  assert.ok(sent.some((r) => r.scenario === 'owner_phone' && r.chat_id === 'room@g.us'));
 
   const offer = sent.find((r) => r.scenario === 'offer');
   assert.ok(offer, 'button message exists');

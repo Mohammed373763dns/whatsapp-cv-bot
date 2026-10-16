@@ -162,13 +162,13 @@ function forwardCheck(chatId, jobId, sender) {
   const ownerId = `${job.owner_phone}@c.us`;
   db.saveChat({ id: ownerId, phone: job.owner_phone });
   reply(ownerId, 'result', result.text, sender, { attachment: result.attachment, note: `تحويل الفحص #${jobId}`, deliver: true });
-  afterResult(ownerId, job.owner_phone, sender);
+  if (job.owner_phone) reply(ownerId, 'owner_phone', `رقم صاحب الفحص: +${job.owner_phone}`, sender);
   reply(chatId, 'ack', `تم إرسال الفحص للرقم ${job.owner_phone}`, sender);
   return true;
 }
 
 // الفحص خلص: النتيجة للي بعت الملف، والزر إذا الرقم وصل
-function settleJob(jobId, out, sender) {
+async function settleJob(jobId, out, sender, wa) {
   const job = getJob(jobId);
   if (!job || job.status !== 'checking') return;
   const result = out?.replyId ? db.getReply(out.replyId) : null;
@@ -179,15 +179,30 @@ function settleJob(jobId, out, sender) {
   }
   db.db.prepare('UPDATE file_checks SET status = ?, reply_id = ? WHERE id = ?').run('ready', result.id, jobId);
   sender.enqueue(result.id);
-  afterResult(job.chat_id, getJob(jobId).owner_phone, sender);
+  if (job.owner_phone) reply(job.chat_id, 'owner_phone', `رقم صاحب الفحص: +${job.owner_phone}`, sender);
+  await postResultToGroup(getJob(jobId), result, sender, wa);
   sendOffer(jobId, sender);
 }
 
-// بعد النتيجة: رابط الجروب من الإعدادات، وبعده رقم صاحب الفحص
-function afterResult(chatId, phone, sender) {
+// النتيجة بتنزل داخل الجروب (البوت عضو فيه). الرابط من الإعدادات بس عشان نعرف أي جروب، وما بينبعت للزبون
+async function postResultToGroup(job, result, sender, wa) {
   const link = String(settings.get().groupLink || '').trim();
-  if (/^https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9_-]+/.test(link)) reply(chatId, 'group', link, sender);
-  if (phone) reply(chatId, 'owner_phone', `رقم صاحب الفحص: +${phone}`, sender);
+  const code = (link.match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/) || [])[1];
+  if (!code || !wa?.groupByInvite || !result?.text) return;
+  let groupId = null;
+  try {
+    groupId = await wa.groupByInvite(code);
+  } catch (err) {
+    console.error('group post failed:', err.message);
+    return;
+  }
+  if (!groupId) {
+    console.error('group not found — the bot has to be a member of the group in settings');
+    return;
+  }
+  db.saveChat({ id: groupId, name: 'جروب الفحص' });
+  reply(groupId, 'result', result.text, sender, { attachment: result.attachment, note: `فحص #${job.id}`, deliver: true });
+  if (job.owner_phone) reply(groupId, 'owner_phone', `رقم صاحب الفحص: +${job.owner_phone}`, sender);
 }
 
 async function beginCheck(jobId, sender, wa) {
@@ -200,7 +215,7 @@ async function beginCheck(jobId, sender, wa) {
   const rows = ids
     .map((id) => db.db.prepare('SELECT id, type, body, ts FROM messages WHERE id = ? AND chat_id = ?').get(id, job.chat_id))
     .filter(Boolean);
-  settleJob(jobId, await runCheck(job.chat_id, rows, wa, sender, 'ملف من الزبون'), sender);
+  await settleJob(jobId, await runCheck(job.chat_id, rows, wa, sender, 'ملف من الزبون'), sender, wa);
 }
 
 async function startJob(chatId, msgIds, sender, wa) {
