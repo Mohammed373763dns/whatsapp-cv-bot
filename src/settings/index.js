@@ -24,6 +24,11 @@ const DEFAULTS = {
     useOpti: true,
     optiUrl: 'https://opti-company.vercel.app',
     scoreLine: 'تقييم سيرتك الذاتية {score}%',
+    // بتنضاف بآخر كل فحص
+    closing: {
+      male: 'إذا حابب نشتغل على هادي الملاحظات ونسويلك سيرة ذاتية جديدة بصياغة صح أحنا جاهزين',
+      female: 'إذا حابة نشتغل على هادي الملاحظات ونسويلك سيرة ذاتية جديدة بصياغة صح أحنا جاهزين',
+    },
     prompt: DEFAULT_CV_PROMPT,
   },
 };
@@ -38,8 +43,20 @@ function merge(base, over) {
 
 let cache = null;
 
+// نسخ قديمة من البرومبت الافتراضي انحفظت بقاعدة البيانات من الداشبورد القديم وكانت تغلب الجديد.
+// إذا المحفوظ هو نفس نسخة افتراضية قديمة (مش تعديل منك) منشيله فبيشتغل الافتراضي الحالي
+const OLD_DEFAULT_PROMPTS = new Set(['cba19319bd61abfaf480069acb1d330a3a96823c']);
+const sha1 = (s) => require('crypto').createHash('sha1').update(String(s)).digest('hex');
+
 function get() {
-  if (!cache) cache = merge(DEFAULTS, db.getSetting('config', {}));
+  if (!cache) {
+    const saved = db.getSetting('config', {});
+    if (saved.cv?.prompt && OLD_DEFAULT_PROMPTS.has(sha1(saved.cv.prompt))) {
+      delete saved.cv.prompt;
+      db.setSetting('config', saved);
+    }
+    cache = merge(DEFAULTS, saved);
+  }
   return cache;
 }
 

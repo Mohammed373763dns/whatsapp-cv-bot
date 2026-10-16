@@ -49,7 +49,8 @@ const DROP = [
 const DROP_IF = [
   [(f) => f.langLevels === true, /مستوا?ك|مستوى (اللغة|كل لغة)/],
   [(f) => f.skillsSectioned === true, /تقسمي? المهارات|نظام اقسام/],
-  [(f) => f.pages > 0 && f.pages < 3, /سيرتك واصلة/],
+  // ملاحظة الطول بس للسيرة الأطول من 3 صفحات (3 صفحات مقبولة)
+  [(f) => f.pages > 0 && f.pages <= 3, /سيرتك واصلة/],
   // الصفحة عمود واحد بدون جداول ولا أيقونات: ما في سبب يخلي التصميم "مش مناسب"
   [(f) => cleanLayout(f) && !f.icons, /التصميم (لل?[اأ]سف )?مش مناسب|التصميم مرفوض|التنسيق مرفوض|التنسيق (لل?[اأ]سف )?مش مناسب/],
 ];
@@ -179,7 +180,19 @@ async function check(input) {
       { role: 'user', content },
     ],
   });
-  return { text: sanitize(text, facts), usd, mode, facts };
+  return { text: withClosing(sanitize(text, facts), cfg.closing), usd, mode, facts };
 }
 
-module.exports = { check, sanitize };
+// "حاول تختصرها لصفحتين و نص" (الصيغة القديمة) ← الحد الأقصى 3 صفحات
+const fixPageNote = (text) => text.replace(/حاولي? (تختصر|تختصري)(ها|يها) ل(صفحتين|٢ صفحات|2 صفحات)\s*و\s*نص/g, 'خليها كحد أقصى 3 صفحات');
+
+// جملة العرض بآخر كل فحص (للأنثى "حابة"). الجنس من افتتاح الفحص ("يعطيكي العافية استاذة")
+function withClosing(text, closing) {
+  const body = fixPageNote(text);
+  if (!closing) return body;
+  const female = /يعطيكي|استاذة|انسة|آنسة|دكتورة|مهندسة/.test(body.split('\n')[0]);
+  const line = female ? closing.female : closing.male;
+  return line ? `${body}\n\n${line}` : body;
+}
+
+module.exports = { check, sanitize, withClosing };
