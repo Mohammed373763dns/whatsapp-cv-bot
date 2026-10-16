@@ -97,9 +97,10 @@ test('manual message, manual check, empty result, settings', async () => {
   assert.deepStrictEqual(await api('/api/chats'), [], 'old number chats are cleared');
   assert.strictEqual(db.getSetting('linkedPhone', 'x'), null);
 
-  await api('/api/settings', { enabled: false, ackText: '  ', groupLink: 'https://chat.whatsapp.com/FromSettings', autoSend: { afterMin: 20 } });
+  await api('/api/settings', { enabled: false, ackText: '  ', groupLink: 'https://chat.whatsapp.com/FromSettings', cv: { imageByLang: false }, autoSend: { afterMin: 20 } });
   assert.strictEqual(settings.get().enabled, false);
   assert.ok(settings.get().ackText.length > 2, 'empty text is ignored');
   assert.strictEqual(settings.get().groupLink, 'https://chat.whatsapp.com/FromSettings');
+  assert.strictEqual(settings.get().cv.imageByLang, false);
   assert.strictEqual(settings.get().autoSend.afterMin, 20);
 });

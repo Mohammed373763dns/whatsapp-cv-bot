@@ -25,6 +25,8 @@ const DEFAULTS = {
     useOpti: true,
     optiUrl: 'https://opti-company.vercel.app',
     scoreLine: 'تقييم سيرتك الذاتية {score}%',
+    // صورة الدرجة: إذا شغّال، لغتها زي لغة السيرة، والعربي من اليمين لليسار
+    imageByLang: true,
     // بتنضاف بآخر كل فحص
     closing: {
       male: 'إذا حابب نشتغل على هادي الملاحظات ونسويلك سيرة ذاتية جديدة بصياغة صح أحنا جاهزين',

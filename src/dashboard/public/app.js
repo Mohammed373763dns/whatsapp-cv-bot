@@ -124,6 +124,7 @@ function renderBar() {
     $('#groupLink').value = S.groupLink || '';
     $('#groupLink').dataset.loaded = '1';
   }
+  $('#imageByLang').checked = S.imageByLang !== false;
   $('#autoSend').checked = S.autoSend.enabled;
   if (document.activeElement !== $('#afterMin')) $('#afterMin').value = S.autoSend.afterMin;
 }
@@ -346,10 +347,11 @@ $('#enabled').onchange = async (e) => {
   toast(e.target.checked ? 'البوت شغّال' : 'البوت موقّف — ما رح يفحص ولا يرد');
   refresh();
 };
+$('#imageByLang').onchange = (e) => api('/api/settings', { cv: { imageByLang: e.target.checked } });
 $('#autoSend').onchange = (e) => api('/api/settings', { autoSend: { enabled: e.target.checked } });
 $('#afterMin').onchange = (e) => api('/api/settings', { autoSend: { afterMin: Number(e.target.value) } });
 $('#save').onclick = async () => {
-  await api('/api/settings', { ackText: $('#ackText').value, groupLink: $('#groupLink').value, autoSend: { enabled: $('#autoSend').checked, afterMin: Number($('#afterMin').value) } });
+  await api('/api/settings', { ackText: $('#ackText').value, groupLink: $('#groupLink').value, cv: { imageByLang: $('#imageByLang').checked }, autoSend: { enabled: $('#autoSend').checked, afterMin: Number($('#afterMin').value) } });
   $('#settings').close();
   toast('انحفظت الإعدادات');
 };

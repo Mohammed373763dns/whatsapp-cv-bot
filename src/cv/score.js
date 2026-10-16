@@ -75,8 +75,9 @@ async function prepare(files) {
   }
   const images = files.filter(isImage);
   if (images.length) {
-    const docx = await textToDocx(await imagesToText(images));
-    return { upload: { buffer: docx, filename: 'cv-from-images.docx', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }, preview: async () => images[0].buffer };
+    const text = await imagesToText(images);
+    const docx = await textToDocx(text);
+    return { upload: { buffer: docx, filename: 'cv-from-images.docx', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }, preview: async () => images[0].buffer, text };
   }
   return null;
 }
@@ -103,7 +104,35 @@ async function analyze(baseUrl, upload, botKey) {
 const W = 1200;
 const H = 680;
 const FONT = '"Segoe UI", "Liberation Sans", "DejaVu Sans", Arial, sans-serif';
+const AR_FONT = '"Noto Naskh Arabic", "Noto Sans Arabic", "Noto Sans", "DejaVu Sans", "Segoe UI", Arial, sans-serif';
 const colorFor = (s) => (s >= 80 ? '#16a34a' : s >= 60 ? '#d97706' : '#dc2626');
+const isArabic = (text) => {
+  const t = String(text || '').slice(0, 2500);
+  const ar = (t.match(/[؀-ۿ]/g) || []).length;
+  const lat = (t.match(/[A-Za-z]/g) || []).length;
+  return ar >= 15 && ar >= lat;
+};
+
+const CRITERIA_AR = {
+  'personal & contact information': 'المعلومات الشخصية والتواصل',
+  'professional summary': 'الملخص المهني',
+  'work experience': 'الخبرات العملية',
+  'work experience in detail': 'تفاصيل الخبرات',
+  'quantified achievements': 'الإنجازات بالأرقام',
+  'ats language compatibility': 'توافق لغة ATS',
+  'ats keyword compatibility': 'توافق كلمات ATS',
+  formatting: 'التنسيق',
+  'skills organization': 'تنظيم المهارات',
+  'spelling & grammar': 'الإملاء والقواعد',
+  education: 'التعليم',
+  skills: 'المهارات',
+};
+
+function criterionName(c, rtl) {
+  const en = String(c.name_en || c.name || '');
+  if (!rtl) return en;
+  return c.name_ar || c.nameAr || c.label_ar || CRITERIA_AR[en.toLowerCase()] || c.name || en;
+}
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -122,23 +151,25 @@ function fitText(ctx, text, maxWidth) {
   return `${t}…`;
 }
 
-async function drawCard({ score, criteria, ats }, previewBuffer) {
+async function drawCard({ score, criteria, ats, rtl = false }, previewBuffer) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
+  const font = rtl ? AR_FONT : FONT;
   ctx.fillStyle = '#f4f6f8';
   ctx.fillRect(0, 0, W, H);
+  ctx.direction = rtl ? 'rtl' : 'ltr';
 
-  // معاينة السيرة (يسار)
-  const px = 36;
   const py = 36;
   const pw = 400;
   const ph = H - 72;
+  const px = rtl ? W - 36 - pw : 36;
   ctx.fillStyle = '#ffffff';
   roundRect(ctx, px, py, pw, ph, 14);
   ctx.fill();
   ctx.fillStyle = '#6b7280';
-  ctx.font = `600 15px ${FONT}`;
-  ctx.fillText('CV PREVIEW', px + 20, py + 32);
+  ctx.font = `600 15px ${font}`;
+  ctx.textAlign = rtl ? 'right' : 'left';
+  ctx.fillText(rtl ? 'معاينة السيرة' : 'CV PREVIEW', rtl ? px + pw - 20 : px + 20, py + 32);
   if (previewBuffer) {
     try {
       const img = await loadImage(previewBuffer);
@@ -164,15 +195,14 @@ async function drawCard({ score, criteria, ats }, previewBuffer) {
     } catch {}
   }
 
-  // الدرجة (فوق يمين)
-  const rx = px + pw + 30;
-  const rw = W - rx - 36;
+  const rx = rtl ? 36 : px + pw + 30;
+  const rw = rtl ? px - 30 - 36 : W - rx - 36;
   ctx.fillStyle = '#ffffff';
   roundRect(ctx, rx, py, rw, 210, 14);
   ctx.fill();
-  const cx = rx + 120;
-  const cy = py + 105;
   const r = 74;
+  const cx = rtl ? rx + rw - 120 : rx + 120;
+  const cy = py + 105;
   ctx.lineWidth = 16;
   ctx.lineCap = 'round';
   ctx.strokeStyle = '#e5e7eb';
@@ -185,55 +215,66 @@ async function drawCard({ score, criteria, ats }, previewBuffer) {
   ctx.stroke();
   ctx.fillStyle = '#111827';
   ctx.textAlign = 'center';
+  ctx.direction = 'ltr';
   ctx.font = `700 50px ${FONT}`;
   ctx.fillText(String(score), cx, cy + 14);
   ctx.fillStyle = '#6b7280';
-  ctx.font = `500 15px ${FONT}`;
-  ctx.fillText('/ 100', cx, cy + 40);
-  ctx.textAlign = 'left';
+  ctx.font = `500 15px ${font}`;
+  ctx.fillText(rtl ? 'من 100' : '/ 100', cx, cy + 40);
+  const textX = rtl ? cx - r - 40 : cx + r + 40;
+  ctx.textAlign = rtl ? 'right' : 'left';
+  ctx.direction = rtl ? 'rtl' : 'ltr';
   ctx.fillStyle = '#6b7280';
-  ctx.font = `600 15px ${FONT}`;
-  ctx.fillText('WEIGHTED ATS SCORE', cx + r + 40, py + 70);
+  ctx.font = `600 15px ${font}`;
+  ctx.fillText(rtl ? 'درجة ATS المرجّحة' : 'WEIGHTED ATS SCORE', textX, py + 70);
   ctx.fillStyle = '#111827';
-  ctx.font = `700 34px ${FONT}`;
-  ctx.fillText(score >= 80 ? 'Strong CV' : score >= 60 ? 'Good, needs edits' : 'Needs work', cx + r + 40, py + 112);
+  ctx.font = `700 34px ${font}`;
+  const verdict = score >= 80 ? (rtl ? 'سيرة قوية' : 'Strong CV') : score >= 60 ? (rtl ? 'جيدة، تحتاج تعديل' : 'Good, needs edits') : (rtl ? 'تحتاج شغل' : 'Needs work');
+  ctx.fillText(verdict, textX, py + 112);
   if (ats) {
-    ctx.fillStyle = colorFor(/high/i.test(ats) ? 90 : /medium|moderate/i.test(ats) ? 70 : 40);
-    ctx.font = `600 18px ${FONT}`;
-    ctx.fillText(`ATS compatibility: ${ats[0].toUpperCase()}${ats.slice(1)}`, cx + r + 40, py + 148);
+    const level = /high/i.test(ats) ? 'high' : /medium|moderate/i.test(ats) ? 'medium' : 'low';
+    ctx.fillStyle = colorFor(level === 'high' ? 90 : level === 'medium' ? 70 : 40);
+    ctx.font = `600 18px ${font}`;
+    const atsText = rtl
+      ? `توافق ATS: ${{ high: 'عالي', medium: 'متوسط', low: 'منخفض' }[level]}`
+      : `ATS compatibility: ${ats[0].toUpperCase()}${ats.slice(1)}`;
+    ctx.fillText(atsText, textX, py + 148);
   }
 
-  // المعايير (تحت يمين)
   const ty = py + 230;
   const th = H - ty - 36;
   ctx.fillStyle = '#ffffff';
   roundRect(ctx, rx, ty, rw, th, 14);
   ctx.fill();
   ctx.fillStyle = '#6b7280';
-  ctx.font = `600 15px ${FONT}`;
-  ctx.fillText('CRITERIA', rx + 24, ty + 32);
+  ctx.font = `600 15px ${font}`;
+  ctx.textAlign = rtl ? 'right' : 'left';
+  ctx.fillText(rtl ? 'المعايير' : 'CRITERIA', rtl ? rx + rw - 24 : rx + 24, ty + 32);
   const rows = (criteria || []).slice(0, 8);
   const rowH = Math.min(44, (th - 56) / Math.max(rows.length, 1));
   const nameW = 300;
-  const barX = rx + 24 + nameW + 16;
-  const barW = rw - (barX - rx) - 80;
+  const barW = rw - 24 - nameW - 16 - 80;
+  const barX = rtl ? rx + 70 : rx + 24 + nameW + 16;
   rows.forEach((c, i) => {
     const y = ty + 56 + i * rowH + rowH / 2;
     const s = Math.round(Number(c.score) || 0);
     ctx.fillStyle = '#374151';
-    ctx.font = `500 17px ${FONT}`;
-    ctx.fillText(fitText(ctx, String(c.name_en || c.name || ''), nameW), rx + 24, y + 6);
+    ctx.font = `500 17px ${font}`;
+    ctx.direction = rtl ? 'rtl' : 'ltr';
+    ctx.textAlign = rtl ? 'right' : 'left';
+    ctx.fillText(fitText(ctx, criterionName(c, rtl), nameW), rtl ? rx + rw - 24 : rx + 24, y + 6);
     ctx.fillStyle = '#eef0f3';
     roundRect(ctx, barX, y - 6, barW, 12, 6);
     ctx.fill();
+    const fillW = Math.max(12, (barW * s) / 100);
     ctx.fillStyle = colorFor(s);
-    roundRect(ctx, barX, y - 6, Math.max(12, (barW * s) / 100), 12, 6);
+    roundRect(ctx, rtl ? barX + barW - fillW : barX, y - 6, fillW, 12, 6);
     ctx.fill();
     ctx.fillStyle = '#111827';
     ctx.font = `700 17px ${FONT}`;
-    ctx.textAlign = 'right';
-    ctx.fillText(String(s), rx + rw - 24, y + 6);
-    ctx.textAlign = 'left';
+    ctx.direction = 'ltr';
+    ctx.textAlign = rtl ? 'left' : 'right';
+    ctx.fillText(String(s), rtl ? rx + 24 : rx + rw - 24, y + 6);
   });
 
   return canvas.toBuffer('image/jpeg', 90);
@@ -249,11 +290,33 @@ async function scoreCv(files, { baseUrl, botKey }) {
       analyze(baseUrl, prep.upload, botKey),
       prep.preview().catch(() => null), // المعاينة مش ضرورية
     ]);
-    const image = await drawCard({ score: data.overall_score, criteria: data.criteria, ats: data.ats_compatibility }, preview);
+    const follow = require('../settings').get().cv.imageByLang !== false;
+    const rtl = follow && isArabic(await languageSample(prep));
+    const image = await drawCard({ score: data.overall_score, criteria: data.criteria, ats: data.ats_compatibility, rtl }, preview);
     return { score: data.overall_score, image, data };
   } finally {
     running--;
   }
 }
 
-module.exports = { scoreCv, drawCard, textToDocx, busy };
+async function languageSample(prep) {
+  if (prep?.text) return prep.text;
+  const { fromPdf, extract } = require('./extract');
+  if (prep?.upload?.type === 'application/pdf') {
+    try {
+      return (await fromPdf(prep.upload.buffer, 1)).text || '';
+    } catch {
+      return '';
+    }
+  }
+  if (/wordprocessingml/.test(prep?.upload?.type || '')) {
+    try {
+      return (await extract({ buffer: prep.upload.buffer, mimetype: prep.upload.type, filename: prep.upload.filename }, 1)).text || '';
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+module.exports = { scoreCv, drawCard, textToDocx, busy, isArabic };

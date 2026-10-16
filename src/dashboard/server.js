@@ -104,6 +104,7 @@ async function state(wa, sender) {
     autoSend: s.autoSend,
     ackText: s.ackText,
     groupLink: s.groupLink || '',
+    imageByLang: s.cv.imageByLang !== false,
     queue: sender.queue.length,
     memory: require('../shared/system').memory(),
     results: results(),
@@ -151,6 +152,7 @@ function start({ wa, sender }) {
       if (typeof b.enabled === 'boolean') patch.enabled = b.enabled;
       if (typeof b.ackText === 'string' && b.ackText.trim()) patch.ackText = b.ackText.trim();
       if (typeof b.groupLink === 'string') patch.groupLink = b.groupLink.trim();
+      if (b.cv && typeof b.cv.imageByLang === 'boolean') patch.cv = { imageByLang: b.cv.imageByLang };
       if (b.autoSend) {
         patch.autoSend = {};
         if (typeof b.autoSend.enabled === 'boolean') patch.autoSend.enabled = b.autoSend.enabled;
