@@ -1,6 +1,6 @@
 // البوت بيعمل شغلة وحدة: فحص الملف اللي بينبعتله
-//   - أي ملف (أو كم صورة ورا بعض) → "شو رقم صاحب الملف؟" وبعدها "جاري الفحص"
-//   - لما يخلص الفحص: النتيجة بتنبعت فوراً للي بعت الملف، ومعها زر يحوّل نفس الفحص لرقم صاحب الملف
+//   - أي ملف → "شو رقم صاحب الملف؟" وبيستنى الرقم. بعد الرقم: "جاري الفحص"
+//   - لما يخلص: النتيجة للمستخدم فوراً، ومعها زر (استطلاع بخيار واحد، لأن واتساب ما بعرض أزرار الرد) يحوّل الفحص لرقم صاحب الملف
 //   - الكلام العادي ما بيرد عليه. كل رقم بقدر يبعت كم ملف ما بدّه، وكل ملف بينفحص
 const fs = require('fs');
 const path = require('path');
@@ -103,7 +103,7 @@ const wantsForward = (text) => {
 
 const getJob = (id) => db.db.prepare('SELECT * FROM file_checks WHERE id = ?').get(id);
 const jobWaitingPhone = (chatId) => db.db.prepare(
-  `SELECT * FROM file_checks WHERE chat_id = ? AND owner_phone IS NULL AND status IN ('checking', 'ready') ORDER BY id DESC LIMIT 1`
+  `SELECT * FROM file_checks WHERE chat_id = ? AND owner_phone IS NULL AND status = 'awaiting_phone' ORDER BY id DESC LIMIT 1`
 ).get(chatId);
 const openOffer = (chatId) => db.db.prepare(
   `SELECT * FROM file_checks WHERE chat_id = ? AND status = 'offer' ORDER BY id DESC LIMIT 1`
@@ -124,23 +124,32 @@ function scheduleFiles(chatId, msgId, sender, wa) {
   batches.set(chatId, batch);
 }
 
-function rememberPhone(chatId, phone, sender) {
+function rememberPhone(chatId, phone, sender, wa) {
   const job = jobWaitingPhone(chatId);
   if (!job) return false;
   db.db.prepare('UPDATE file_checks SET owner_phone = ? WHERE id = ?').run(phone, job.id);
-  if (job.status === 'ready') sendOffer(job.id, sender);
+  beginCheck(job.id, sender, wa).catch((err) => console.error('check error:', err.message));
   return true;
 }
 
-// الزر بيظهر بعد ما النتيجة تجهز والرقم يكون عندنا
+// زر الإرسال: واتساب ما بعرض أزرار الرد، فبنبعت استطلاع بخيار واحد والمستخدم بضغطه
 function sendOffer(jobId, sender) {
   const job = getJob(jobId);
   if (!job?.owner_phone || job.status !== 'ready' || !job.reply_id) return;
   const updated = db.db.prepare(`UPDATE file_checks SET status = 'offer' WHERE id = ? AND status = 'ready'`).run(jobId);
   if (!updated.changes) return;
-  reply(job.chat_id, 'offer', `لإرسال نتيجة الفحص تلقائياً للرقم ${job.owner_phone} اضغط الزر، أو اكتب: أرسل`, sender, {
+  reply(job.chat_id, 'offer', `إرسال نتيجة الفحص للرقم ${job.owner_phone}`, sender, {
     buttons: [{ id: `fwd:${jobId}`, body: SEND_BUTTON }],
   });
+}
+
+function onPollVote({ parentId, chatId } = {}, sender) {
+  let job = parentId
+    ? db.db.prepare(`SELECT * FROM file_checks WHERE offer_msg = ? AND status = 'offer'`).get(parentId)
+    : null;
+  if (!job && chatId) job = db.db.prepare(`SELECT * FROM file_checks WHERE chat_id = ? AND status = 'offer' ORDER BY id DESC LIMIT 1`).get(chatId);
+  if (!job) return false;
+  return forwardCheck(job.chat_id, job.id, sender);
 }
 
 function forwardCheck(chatId, jobId, sender) {
@@ -169,8 +178,20 @@ function settleJob(jobId, out, sender) {
   }
   db.db.prepare('UPDATE file_checks SET status = ?, reply_id = ? WHERE id = ?').run('ready', result.id, jobId);
   sender.enqueue(result.id);
-  if (getJob(jobId).owner_phone) sendOffer(jobId, sender);
-  else reply(job.chat_id, 'ask_phone', 'ابعت رقم صاحب الملف عشان نبعتله نتيجة الفحص', sender);
+  sendOffer(jobId, sender);
+}
+
+async function beginCheck(jobId, sender, wa) {
+  const job = getJob(jobId);
+  if (!job?.owner_phone) return;
+  const updated = db.db.prepare(`UPDATE file_checks SET status = 'checking' WHERE id = ? AND status = 'awaiting_phone'`).run(jobId);
+  if (!updated.changes) return;
+  reply(job.chat_id, 'checking', CHECKING, sender);
+  const ids = JSON.parse(job.msg_ids || '[]');
+  const rows = ids
+    .map((id) => db.db.prepare('SELECT id, type, body, ts FROM messages WHERE id = ? AND chat_id = ?').get(id, job.chat_id))
+    .filter(Boolean);
+  settleJob(jobId, await runCheck(job.chat_id, rows, wa, sender, 'ملف من الزبون'), sender);
 }
 
 async function startJob(chatId, msgIds, sender, wa) {
@@ -183,19 +204,21 @@ async function startJob(chatId, msgIds, sender, wa) {
     .filter((m) => m && m.ts > since);
   if (!rows.length) return;
 
-  const jobId = Number(db.db.prepare(`INSERT INTO file_checks (chat_id, msg_ids, status, created) VALUES (?, ?, 'checking', ?)`)
+  const jobId = Number(db.db.prepare(`INSERT INTO file_checks (chat_id, msg_ids, status, created) VALUES (?, ?, 'awaiting_phone', ?)`)
     .run(chatId, JSON.stringify(rows.map((m) => m.id)), db.now()).lastInsertRowid);
   const early = db.history(chatId, 12).filter((m) => !m.from_me && m.type === 'chat' && m.ts >= rows[0].ts);
+  let phone = null;
   for (const m of early) {
-    const phone = parsePhone(m.body, chat.phone);
-    if (!phone) continue;
-    db.db.prepare('UPDATE file_checks SET owner_phone = ? WHERE id = ?').run(phone, jobId);
-    break;
+    phone = parsePhone(m.body, chat.phone);
+    if (phone) break;
   }
-  reply(chatId, 'ask_phone', ASK_PHONE, sender);
-  reply(chatId, 'checking', CHECKING, sender);
-  // ما في حد لعدد الفحوصات لكل رقم: كل ملف جديد بيفحص لحاله
-  settleJob(jobId, await runCheck(chatId, rows, wa, sender, 'ملف من الزبون'), sender);
+  // الفحص ما بيبلّش إلا بعد الرقم. كل ملف جديد إله فحص لحاله
+  if (!phone) {
+    reply(chatId, 'ask_phone', ASK_PHONE, sender);
+    return;
+  }
+  db.db.prepare('UPDATE file_checks SET owner_phone = ? WHERE id = ?').run(phone, jobId);
+  await beginCheck(jobId, sender, wa);
 }
 
 // فحص بإيدك من الداشبورد (بدون الرد الآلي)
@@ -310,7 +333,7 @@ async function handle(msg, sender, wa) {
   if (!['chat', 'buttons_response', 'template_button_reply'].includes(msg.type)) return;
 
   const phone = parsePhone(msg.body, chat.phone);
-  if (phone && rememberPhone(msg.chatId, phone, sender)) return;
+  if (phone && rememberPhone(msg.chatId, phone, sender, wa)) return;
   const offer = openOffer(msg.chatId);
   if (offer && wantsForward(msg.body)) {
     forwardCheck(msg.chatId, offer.id, sender);
@@ -321,4 +344,4 @@ async function handle(msg, sender, wa) {
   }
 }
 
-module.exports = { REAL_TYPES, handle, checkNow, wantsCheck, usedCheck, sendDueResults, startAutoSend, RECEIVED, parsePhone, settleJob };
+module.exports = { REAL_TYPES, handle, checkNow, wantsCheck, usedCheck, sendDueResults, startAutoSend, RECEIVED, parsePhone, settleJob, onPollVote };

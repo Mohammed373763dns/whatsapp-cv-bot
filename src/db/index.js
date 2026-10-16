@@ -94,7 +94,7 @@ db.exec(`
 `);
 
 // أعمدة انضافت بعدين (للقواعد القديمة)
-for (const sql of ['ALTER TABLE chats ADD COLUMN muted INTEGER DEFAULT 0', 'ALTER TABLE chats ADD COLUMN files_since INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN note TEXT', 'ALTER TABLE replies ADD COLUMN queued_at INTEGER', 'ALTER TABLE replies ADD COLUMN attachment TEXT', 'ALTER TABLE replies ADD COLUMN pace TEXT', 'ALTER TABLE chats ADD COLUMN files_from INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN buttons TEXT']) {
+for (const sql of ['ALTER TABLE chats ADD COLUMN muted INTEGER DEFAULT 0', 'ALTER TABLE chats ADD COLUMN files_since INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN note TEXT', 'ALTER TABLE replies ADD COLUMN queued_at INTEGER', 'ALTER TABLE replies ADD COLUMN attachment TEXT', 'ALTER TABLE replies ADD COLUMN pace TEXT', 'ALTER TABLE chats ADD COLUMN files_from INTEGER DEFAULT 0', 'ALTER TABLE replies ADD COLUMN buttons TEXT', 'ALTER TABLE file_checks ADD COLUMN offer_msg TEXT']) {
   try {
     db.exec(sql);
   } catch {}

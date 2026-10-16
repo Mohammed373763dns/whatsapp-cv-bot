@@ -53,15 +53,20 @@ test('plain talk and a file from the bot account get no reply', async (t) => {
   assert.deepStrictEqual(texts(), []);
 });
 
-test('a file asks the user for the owner number, then says the check is running', async (t) => {
+test('a file asks for the number and does not check until the number arrives', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   sent.length = 0;
   await msg('b@c.us', 'document', 'cv.pdf');
   assert.deepStrictEqual(texts(), [], 'waits so several pages count as one file');
-  await tick(t, 9e3);
-  assert.deepStrictEqual(texts().slice(0, 2), ['شو رقم صاحب الملف؟', 'جاري الفحص']);
-  assert.ok(sent.slice(0, 2).every((r) => r.pace === 'now'));
-  assert.ok(texts().every((s) => sent[texts().indexOf(s)].chat_id === 'b@c.us'));
+  await tick(t, 3e3);
+  assert.deepStrictEqual(texts(), ['شو رقم صاحب الملف؟']);
+  assert.strictEqual(sent[0].pace, 'now');
+  assert.strictEqual(db.db.prepare(`SELECT status FROM file_checks WHERE chat_id = 'b@c.us'`).get().status, 'awaiting_phone');
+
+  sent.length = 0;
+  await msg('b@c.us', 'chat', '0791112233');
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  assert.strictEqual(texts()[0], 'جاري الفحص');
   assert.ok(texts().some((s) => s.includes('ما قدرنا نكمل')));
 });
 
@@ -82,10 +87,18 @@ test('the send button is queued to the user, and their tap delivers the check to
   assert.ok(offer, 'button message exists');
   assert.strictEqual(offer.chat_id, 'u@c.us', 'the button goes to the user, not the bot account');
   assert.ok(offer.text.includes('962791112233'));
+  assert.ok(!offer.text.includes('اضغط الزر'));
   const buttons = JSON.parse(offer.buttons);
   assert.strictEqual(buttons[0].body, 'أرسل الفحص لهذا الرقم');
   assert.ok(sent.some((r) => r.id === replyId && r.chat_id === 'u@c.us'), 'the result itself is sent to the user');
 
+  db.db.prepare(`UPDATE file_checks SET offer_msg = ? WHERE id = ?`).run('poll-1', job.id);
+  const beforeTap = sent.length;
+  assert.strictEqual(flow.onPollVote({ parentId: 'poll-1' }, sender), true);
+  assert.strictEqual(sent.slice(beforeTap).find((r) => r.scenario === 'result').chat_id, '962791112233@c.us');
+  sent.length = beforeTap;
+
+  db.db.prepare(`UPDATE file_checks SET status = 'offer' WHERE id = ?`).run(job.id);
   sent.length = 0;
   await msg('u@c.us', 'buttons_response', 'أرسل الفحص لهذا الرقم', { selectedId: buttons[0].id });
   const forwarded = sent.find((r) => r.scenario === 'result');

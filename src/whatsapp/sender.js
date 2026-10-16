@@ -114,21 +114,23 @@ class SafeSender extends EventEmitter {
       await sleep(Math.max(1.5, Math.min(text.length / rand(7, 13), S.MAX_TYPING_SEC)) * 1000);
     }
 
-    // الزر بينبعت لمحادثة المستخدم. إذا الواتس رفض الأزرار، النص بينبعت لحاله و"أرسل" بتكفي
-    if (reply.buttons) {
+    // زر الإرسال استطلاع بخيار واحد: واتساب ما بعرض أزرار الرد. إذا فشل، "أرسل" بتكمّل
+    if (reply.buttons && this.wa.sendPoll) {
       let buttons = [];
       try {
         buttons = JSON.parse(reply.buttons);
       } catch {}
-      if (buttons.length && this.wa.sendButtons) {
+      const option = buttons[0]?.body;
+      if (option) {
         this.echoes.set(`${chatId}|${text}`, echo);
         try {
-          const msgId = await withTimeout(this.wa.sendButtons(chatId, text, buttons), SEND_TIMEOUT_MS, 'الزر');
+          const msgId = await withTimeout(this.wa.sendPoll(chatId, text, [option]), SEND_TIMEOUT_MS, 'الزر');
           this.sentAt.push(Date.now());
-          this._record(reply, msgId, 'chat', text, echo.by);
+          this._record(reply, msgId, 'poll', text, echo.by);
+          if (msgId) db.db.prepare(`UPDATE file_checks SET offer_msg = ? WHERE chat_id = ? AND status = 'offer' AND offer_msg IS NULL`).run(msgId, chatId);
           return;
         } catch (err) {
-          console.error('button failed, sending the text without it:', err.message);
+          console.error('send button failed:', err.message);
         }
       }
     }

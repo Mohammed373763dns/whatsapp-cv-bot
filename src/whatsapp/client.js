@@ -67,6 +67,20 @@ class WhatsApp extends EventEmitter {
         ...(config.BROWSER_PATH && { executablePath: config.BROWSER_PATH }),
       },
     });
+    this.client.on('vote_update', (vote) => {
+      const key = vote.parentMsgKey;
+      let parentId = null;
+      if (typeof key === 'string') parentId = key;
+      else if (key?._serialized) parentId = key._serialized;
+      else if (key?.remote && key.id) {
+        const remote = key.remote._serialized || key.remote;
+        parentId = `${key.fromMe ? 'true' : 'false'}_${remote}_${key.id}`;
+      }
+      if (!(vote.selectedOptions || []).length) return;
+      const voter = vote.voter;
+      const chatId = voter?._serialized || (typeof voter === 'string' ? voter : null);
+      this.emit('vote', { parentId, chatId });
+    });
     this.client.on('qr', (qr) => {
       this.qr = qr;
       this._setStatus('qr');
@@ -346,6 +360,27 @@ class WhatsApp extends EventEmitter {
       },
       chatId,
       text
+    );
+  }
+
+  // خيار واحد يضغطه المستخدم. واتساب بعرضه، بعكس أزرار الرد اللي ما عادت تبيّن
+  sendPoll(chatId, title, options) {
+    return this.client.pupPage.evaluate(
+      async (chatId, title, options) => {
+        const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
+        if (!chat) throw new Error('chat not found');
+        const msg = await window.WWebJS.sendMessage(chat, '', {
+          poll: {
+            pollName: title,
+            pollOptions: options.map((name, localId) => ({ name, localId })),
+            options: { allowMultipleAnswers: false },
+          },
+        });
+        return msg ? msg.id.toString() : null;
+      },
+      chatId,
+      title,
+      options
     );
   }
 

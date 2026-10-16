@@ -23,6 +23,13 @@ wa.on('status', (s) => {
   console.log(`WhatsApp: ${s}`);
   if (s === 'ready') adoptAccount(wa.account);
 });
+wa.on('vote', (v) => {
+  try {
+    flow.onPollVote(v, sender);
+  } catch (err) {
+    console.error('vote error:', err.message);
+  }
+});
 wa.on('message', (msg) => {
   if (!msg.fromMe) console.log(`<- ${msg.phone || msg.chatId} [${msg.type}] ${(msg.body || '').slice(0, 60)}`);
   flow.handle(msg, sender, wa).catch((err) => console.error('handle error:', err));
