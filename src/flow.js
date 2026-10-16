@@ -262,6 +262,8 @@ async function handle(msg, sender, wa) {
   const shown = msg.type === 'chat' ? msg.body : [label, msg.body].filter(Boolean).join('\n');
   // رسالة منك من اللوحة أو من البوت (مش من جوال الموظف)
   const echo = msg.fromMe ? sender.isBotEcho(msg) || 0 : 0;
+  // رسالة البوت أو اللوحة انحفظت أصلاً لما انبعتت: ما منكررها
+  if (echo && db.sentRecently(msg.chatId, shown)) return;
   db.saveMessage({ ...msg, body: shown, byBot: echo });
   if (msg.fromMe) return;
   if (!settings.get().enabled) return;

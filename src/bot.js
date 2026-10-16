@@ -31,6 +31,10 @@ require('./shared/system').startMemoryLog();
 // طلبات كانت عم تنفحص لما البوت طفي: ما رح تكمل لحالها، فبتطلع "الفحص فشل" مع زر "افحص مرة تانية"
 db.db.prepare(`UPDATE requests SET finished = ?, error = 'البوت انعاد تشغيله وقت الفحص — افحصه مرة تانية' WHERE finished IS NULL`).run(db.now());
 
+// التكرار اللي انحفظ قبل التصليح (رسائل البوت واللوحة مرتين بنفس النص وبنفس الدقايق): منخلي وحدة
+db.db.prepare(`DELETE FROM messages WHERE from_me = 1 AND by_bot > 0 AND rowid NOT IN (
+  SELECT MIN(rowid) FROM messages WHERE from_me = 1 AND by_bot > 0 GROUP BY chat_id, body, CAST(ts / 300 AS INTEGER))`).run();
+
 xai.loadPricing();
 dashboard.start({ wa, sender });
 flow.startAutoSend(sender);

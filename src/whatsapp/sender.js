@@ -139,7 +139,7 @@ class SafeSender extends EventEmitter {
   // الرسالة اللي انبعتت بتنحفظ بمحادثة اللوحة على طول. نفس id تبع الواتس، فإذا الواتس رجّعها كمان ما بتتكرر
   _record(reply, msgId, type, body, by) {
     const id = msgId || `sent-${reply.id}`;
-    if (db.db.prepare('SELECT 1 FROM messages WHERE id = ?').get(id)) return;
+    if (db.db.prepare('SELECT 1 FROM messages WHERE id = ?').get(id) || db.sentRecently(reply.chat_id, body)) return;
     db.saveMessage({ id, chatId: reply.chat_id, fromMe: true, type, body, timestamp: db.now(), byBot: by });
   }
 

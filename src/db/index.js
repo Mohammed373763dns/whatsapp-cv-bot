@@ -132,6 +132,19 @@ module.exports = {
   },
   history: (chatId, limit = 20) => stmt.history.all(chatId, limit),
 
+  // رسالة منا (البوت أو اللوحة) بنفس النص انحفظت بآخر 3 دقايق؟ الواتس بيرجّع رسائلنا بمعرّف
+  // مختلف عن اللي بيرجعه الإرسال، فمن غير هاد الفحص كانت تبيّن مرتين باللوحة
+  // (رسالة الصورة بتنحفظ "📷 صورة..." بسطر لحاله وبعده النص، فمنقارن النص بدون هاد السطر)
+  sentRecently(chatId, body) {
+    const core = (s) => String(s || '').replace(/^📷[^\n]*\n/, '').trim();
+    const target = core(body);
+    if (!target) return false;
+    return db
+      .prepare('SELECT body FROM messages WHERE chat_id = ? AND from_me = 1 AND ts >= ? ORDER BY ts DESC LIMIT 10')
+      .all(chatId, now() - 180)
+      .some((m) => core(m.body) === target);
+  },
+
   addReply(r) {
     const info = stmt.addReply.run(r.chatId, r.scenario, r.intent || null, r.text, r.source, r.status || 'pending', now(), r.note || null, r.attachment || null, r.pace || null);
     return Number(info.lastInsertRowid);
