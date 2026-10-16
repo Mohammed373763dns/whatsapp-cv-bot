@@ -28,6 +28,9 @@ db.db.prepare(`DELETE FROM messages WHERE type NOT IN (${real})`).run();
 db.db.prepare(`DELETE FROM chats WHERE id NOT IN (SELECT chat_id FROM messages) AND id NOT IN (SELECT chat_id FROM replies)`).run();
 
 require('./shared/system').startMemoryLog();
+// طلبات كانت عم تنفحص لما البوت طفي: ما رح تكمل لحالها، فبتطلع "الفحص فشل" مع زر "افحص مرة تانية"
+db.db.prepare(`UPDATE requests SET finished = ?, error = 'البوت انعاد تشغيله وقت الفحص — افحصه مرة تانية' WHERE finished IS NULL`).run(db.now());
+
 xai.loadPricing();
 dashboard.start({ wa, sender });
 flow.startAutoSend(sender);

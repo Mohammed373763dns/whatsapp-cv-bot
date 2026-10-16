@@ -19,7 +19,10 @@
     </div>
     <div class="wa" id="wa"></div>
     <div class="spacer"></div>
-    <button class="pill-btn" id="waiting-btn" hidden></button>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-view="chats">المحادثات</button>
+      <button role="tab" data-view="requests">الطلبات <span class="tab-count" id="req-count"></span></button>
+    </div>
     <label class="switch" title="تشغيل أو إيقاف البوت لكل الأرقام">
       <input type="checkbox" id="enabled">
       <span class="track"></span>
@@ -38,6 +41,20 @@
       </div>
       <div class="items" id="items"></div>
     </aside>
+
+    <section class="requests" id="requests">
+      <div class="req-head">
+        <b>طلبات الفحص</b>
+        <div class="select-wrap"><select id="req-filter" aria-label="فلترة الطلبات">
+          <option value="pending">المعلقة</option>
+          <option value="all">الكل</option>
+          <option value="sent">انبعتت</option>
+          <option value="failed">فشلت</option>
+          <option value="dismissed">متجاهلة</option>
+        </select></div>
+      </div>
+      <div class="req-list" id="req-list"></div>
+    </section>
 
     <section class="conv" id="conv">
       <div class="conv-empty">

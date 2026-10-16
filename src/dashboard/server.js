@@ -61,6 +61,41 @@ function chatDetail(id) {
   return { chat: { ...chat, status: botStatus(chat) }, messages: db.history(id, 300), replies };
 }
 
+// ---------------------------------------------------------------------------
+// الطلبات: كل فحص وحالته
+// ---------------------------------------------------------------------------
+const PENDING = new Set(['checking', 'ready', 'sending', 'check_failed', 'send_failed']);
+
+function requestStatus(q) {
+  if (!q.finished) return 'checking';
+  if (!q.r_status) return q.error ? 'check_failed' : 'dismissed';
+  if (q.r_status === 'sent') return 'sent';
+  if (q.r_status === 'queued') return 'sending';
+  if (q.r_status === 'failed') return 'send_failed';
+  if (q.r_status === 'dismissed') return 'dismissed';
+  return q.r_text ? 'ready' : 'check_failed'; // pending
+}
+
+function requestList(filter = 'pending') {
+  const rows = db.db
+    .prepare(
+      `SELECT q.*, c.name, c.phone, r.status AS r_status, r.text AS r_text, r.created AS r_created, r.sent_at, r.queued_at, r.note AS r_note
+       FROM requests q JOIN chats c ON c.id = q.chat_id LEFT JOIN replies r ON r.id = q.reply_id
+       ORDER BY q.started DESC LIMIT 300`
+    )
+    .all()
+    .map(({ r_text, ...q }) => ({ ...q, has_text: !!r_text, status: requestStatus({ ...q, r_text }) }));
+  const keep = {
+    pending: (q) => PENDING.has(q.status),
+    all: () => true,
+    sent: (q) => q.status === 'sent',
+    failed: (q) => q.status === 'check_failed' || q.status === 'send_failed',
+    dismissed: (q) => q.status === 'dismissed',
+  }[filter] || (() => true);
+  return rows.filter(keep);
+}
+const pendingCount = () => requestList('pending').length;
+
 async function state(wa, sender) {
   const s = settings.get();
   return {
@@ -71,6 +106,7 @@ async function state(wa, sender) {
     queue: sender.queue.length,
     memory: require('../shared/system').memory(),
     results: results(),
+    pendingRequests: pendingCount(),
   };
 }
 
@@ -129,7 +165,18 @@ function start({ wa, sender }) {
   };
 
   const chatId = (m) => decodeURIComponent(m[1]);
+  const requestActions = [
+    [/^GET \/api\/requests$/, (m, b, q) => requestList(q.get('filter') || 'pending')],
+    // إعادة فحص نفس الملفات (لما الفحص فشل)
+    [/^POST \/api\/requests\/(\d+)\/recheck$/, (m) => {
+      const q = db.db.prepare('SELECT * FROM requests WHERE id = ?').get(Number(m[1]));
+      if (!q) return { error: 'الطلب مش موجود' };
+      if (q.reply_id) db.setReplyStatus(q.reply_id, 'dismissed');
+      return flow.checkNow(q.chat_id, JSON.parse(q.msg_ids || '[]'), sender, wa);
+    }],
+  ];
   const actions = [
+    ...requestActions,
     [/^GET \/api\/chats$/, (m, b, q) => chatList(q.get('q') || '')],
     [/^GET \/api\/chats\/([^/]+)$/, (m) => chatDetail(chatId(m))],
     // مسح سجل البوت: الرقم بيرجع جديد (بيقدر ينفحص مرة كمان)، والمحادثة نفسها بتضل

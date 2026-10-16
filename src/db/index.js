@@ -61,6 +61,20 @@ db.exec(`
     usd REAL
   );
 
+  -- طلبات الفحص: كل فحص (تلقائي أو من اللوحة) وحالته. الحالة النهائية من رد النتيجة (reply_id)
+  CREATE TABLE IF NOT EXISTS requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT,
+    msg_ids TEXT,                    -- JSON: رسائل الملفات (لإعادة الفحص)
+    files TEXT,                      -- أسماء الملفات للعرض
+    reason TEXT,                     -- ليش انفحص (قرار الـAI أو "من اللوحة")
+    started INTEGER,
+    finished INTEGER,
+    reply_id INTEGER,
+    error TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_requests_chat ON requests(chat_id);
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT

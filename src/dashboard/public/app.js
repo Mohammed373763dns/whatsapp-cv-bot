@@ -106,10 +106,7 @@ function renderBar() {
   patch($('#wa'), `<span class="dot ${dot}"></span><span>واتساب ${esc(WA[key] || S.whatsapp.status)}</span>${S.whatsapp.account?.phone ? `<span class="acct">· ${phone(S.whatsapp.account.phone)}</span>` : ''}${mem}${!S.whatsapp.ready && !S.whatsapp.qr && key !== 'logging_out' ? '<button class="pill-btn" data-relink>اعرض كود الربط</button>' : ''}`);
   $('#enabled').checked = S.enabled;
   $('#enabled-label').textContent = S.enabled ? 'البوت شغّال' : 'البوت موقّف';
-  const n = S.results.length;
-  const wb = $('#waiting-btn');
-  wb.hidden = !n;
-  wb.textContent = `${n} بانتظارك`;
+  $('#req-count').textContent = S.pendingRequests || '';
 
   const qr = $('#qr');
   qr.hidden = !S.whatsapp.qr;
@@ -250,6 +247,68 @@ function closeChat() {
   renderList();
 }
 
+/* ------------------------------ الطلبات ------------------------------ */
+let view = 'chats';
+try { view = localStorage.getItem('view') || 'chats'; } catch {}
+
+const REQ_STATUS = {
+  checking: 'عم ينفحص',
+  ready: 'جاهزة للمراجعة',
+  sending: 'عم تنبعت',
+  check_failed: 'الفحص فشل',
+  send_failed: 'ما انبعتت',
+  sent: 'انبعتت',
+  dismissed: 'تجاهلتها',
+};
+
+function reqDetail(q) {
+  const t = now();
+  if (q.status === 'checking') return `صرلها ${mins(t - q.started)} عم تنفحص`;
+  if (q.status === 'ready') {
+    if (!S.autoSend.enabled) return 'بتستناك تراجعها وتبعتها';
+    const left = q.r_created + S.autoSend.afterMin * 60 - t;
+    if (left < -3 * 3600) return 'بتستناك تراجعها وتبعتها (فات وقت الإرسال التلقائي)';
+    return left > 60 ? `بتنبعت لحالها بعد ${mins(left)}` : 'بتنبعت لحالها هلأ';
+  }
+  if (q.status === 'sending') return S.whatsapp.ready ? `عم تنبعت${q.queued_at ? ` من ${mins(t - q.queued_at)}` : ''}` : 'بتستنى الواتس يتصل';
+  if (q.status === 'sent') return `انبعتت ${when(q.sent_at)}`;
+  if (q.status === 'check_failed') return q.error || (q.r_note || '').replace(/^.*?الفحص فشل: /, '') || 'الفحص ما زبط';
+  if (q.status === 'send_failed') return (q.r_note || '').replace(/^.*فشل الإرسال: /, '') || 'الإرسال فشل';
+  return '';
+}
+
+async function renderRequests() {
+  const list = await api(`/api/requests?filter=${enc($('#req-filter').value)}`);
+  const empty = { pending: 'ما في طلبات معلقة 👌', sent: 'لسا ما انبعتت ولا نتيجة', failed: 'ما في طلبات فشلت', dismissed: 'ما في طلبات متجاهلة' }[$('#req-filter').value] || 'لسا ما في طلبات';
+  patch($('#req-list'), list.length
+    ? list.map((q) => {
+      const bad = q.status === 'check_failed' || q.status === 'send_failed';
+      return `<div class="req s-${q.status}">
+        <span class="avatar">${initial(q)}</span>
+        <div class="main">
+          <div class="l1"><b>${nameOf(q)}</b><span class="st ${q.status}">${REQ_STATUS[q.status]}</span><span class="time">${when(q.started)}</span></div>
+          <span class="file">📄 ${esc(q.files || 'ملف')}</span>
+          <div class="detail ${bad ? 'bad' : ''}">${esc(reqDetail(q))}</div>
+        </div>
+        <div class="acts">
+          ${q.status === 'ready' ? `<button class="btn primary" data-send-now="${q.reply_id}">ابعت هلأ</button>` : ''}
+          ${q.status === 'check_failed' ? `<button class="btn primary" data-recheck="${q.id}">افحص مرة تانية</button>` : ''}
+          ${q.status === 'send_failed' ? `<button class="btn primary" data-retry="${q.reply_id}">حاول مرة تانية</button>` : ''}
+          <button class="btn" data-open-chat="${esc(q.chat_id)}">افتح المحادثة</button>
+        </div>
+      </div>`;
+    }).join('')
+    : `<div class="conv-empty">${empty}</div>`);
+}
+
+function setView(v) {
+  view = v;
+  try { localStorage.setItem('view', v); } catch {}
+  $('#app').classList.toggle('view-requests', v === 'requests');
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
+  if (v === 'requests' && S) renderRequests();
+}
+
 let first = true;
 async function refresh() {
   try {
@@ -261,7 +320,8 @@ async function refresh() {
     if (first && !openId && S.results.length && innerWidth > 860) openId = S.results[0].chat_id;
     first = false;
     renderList();
-    await renderConv();
+    if (view === 'requests') await renderRequests();
+    else await renderConv();
   } catch {
     patch($('#wa'), '<span class="dot bad"></span><span>اللوحة مش قادرة توصل للبوت</span>');
   }
@@ -270,11 +330,12 @@ async function refresh() {
 /* ------------------------------ الأزرار ------------------------------ */
 $('#open-settings').innerHTML = icon('gear');
 $('#open-settings').onclick = () => $('#settings').showModal();
-$('#waiting-btn').onclick = () => {
-  filter = 'wait';
-  if (S.results[0]) openChat(S.results[0].chat_id);
-  renderList();
+document.querySelectorAll('.tabs button').forEach((b) => (b.onclick = () => setView(b.dataset.view)));
+$('#req-filter').onchange = (e) => {
+  e.target.blur();
+  renderRequests();
 };
+setView(view);
 $('#enabled').onchange = async (e) => {
   await api('/api/settings', { enabled: e.target.checked });
   toast(e.target.checked ? 'البوت شغّال' : 'البوت موقّف — ما رح يفحص ولا يرد');
@@ -328,6 +389,16 @@ document.addEventListener('click', async (e) => {
   }
   // (الفلتر صار قائمة منسدلة)
   if (t.dataset.open) return openChat(t.dataset.open);
+  // صفحة الطلبات
+  if (t.dataset.openChat) {
+    setView('chats');
+    return openChat(t.dataset.openChat);
+  }
+  if (t.dataset.sendNow) return done(await api(`/api/replies/${t.dataset.sendNow}/send`, {}), 'عم تنبعت للزبون');
+  if (t.dataset.recheck) {
+    if (!(await ask('فحص مرة تانية', 'البوت بيفحص نفس الملف مرة كمان، والنتيجة بتطلعلك تراجعها قبل ما تنبعت.', 'افحص'))) return;
+    return done(await api(`/api/requests/${t.dataset.recheck}/recheck`, {}), 'عم ينفحص...');
+  }
   if (t.hasAttribute('data-back')) return closeChat();
 
   const card = t.closest('.result');

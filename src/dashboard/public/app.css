@@ -97,6 +97,41 @@ bdi { unicode-bidi: isolate; }
 .btn:disabled { opacity: .55; cursor: default; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
+/* تبويبات: المحادثات | الطلبات */
+.tabs { display: flex; background: var(--panel-2); border-radius: 10px; padding: 3px; gap: 2px; }
+.tabs button { border: 0; background: none; border-radius: 8px; padding: 5px 14px; cursor: pointer; color: var(--muted); font-weight: 500; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.tabs button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow); font-weight: 700; }
+.tab-count { background: var(--warn); color: var(--panel); border-radius: 999px; font-size: 12px; padding: 0 7px; font-weight: 700; }
+.tab-count:empty { display: none; }
+
+/* صفحة الطلبات */
+.requests { display: none; grid-column: 1 / -1; flex-direction: column; min-height: 0; background: var(--bg); }
+.app.view-requests .side, .app.view-requests .conv { display: none !important; }
+.app.view-requests .requests { display: flex; }
+.req-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.req-head b { font-size: 17px; }
+.req-list { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.req { display: flex; align-items: center; gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; border-inline-start: 4px solid var(--line); }
+.req.s-checking, .req.s-sending { border-inline-start-color: #3b82f6; }
+.req.s-ready { border-inline-start-color: var(--warn); }
+.req.s-check_failed, .req.s-send_failed { border-inline-start-color: var(--bad); }
+.req.s-sent { border-inline-start-color: var(--accent); }
+.req .main { flex: 1; min-width: 0; }
+.req .l1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.req .l1 b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.req .file { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.req .detail { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.req .detail.bad { color: var(--bad); }
+.req .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.req .btn { padding: 6px 12px; font-size: 14px; }
+.st { font-size: 12.5px; font-weight: 700; border-radius: 999px; padding: 1px 10px; white-space: nowrap; }
+.st.checking, .st.sending { background: #dbeafe; color: #1d4ed8; }
+.st.ready { background: var(--warn-bg); color: var(--warn); }
+.st.check_failed, .st.send_failed { background: var(--bad-bg); color: var(--bad); }
+.st.sent { background: var(--accent-soft); color: var(--accent); }
+.st.dismissed { background: var(--panel-2); color: var(--muted); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .st.checking, :root:not([data-theme="light"]) .st.sending { background: #172554; color: #93c5fd; } }
+
 /* القائمة */
 .side { background: var(--panel); border-inline-end: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .side-top { padding: 10px 12px; display: flex; gap: 8px; border-bottom: 1px solid var(--line); }
@@ -211,6 +246,11 @@ dialog::backdrop { background: rgba(11, 20, 26, .55); }
   .brand b, .wa .acct { display: none; }
   .bar { gap: 8px; padding: 8px 12px; }
   .switch b { display: none; }
+  .tabs button { padding: 5px 9px; }
+  .wa > span:not(.dot), .wa .mem { display: none; }
+  .req { flex-wrap: wrap; }
+  .req .acts { width: 100%; justify-content: flex-start; }
+  .req-list { padding: 12px; }
   .msgs { padding: 12px; }
   .result-body { flex-direction: column; align-items: stretch; }
   .result textarea { width: 100%; }

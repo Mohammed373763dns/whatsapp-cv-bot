@@ -172,7 +172,7 @@ async function decide(chatId, sender, wa) {
   if (!picked.length) picked = [files[files.length - 1]];
   markChecked(chatId);
   reply(chatId, 'ack', settings.get().ackText, sender);
-  runCheck(chatId, picked, wa, sender, d.reason).catch((err) => failed(chatId, `الفحص فشل: ${friendlyError(err.message)}`));
+  runCheck(chatId, picked, wa, sender, d.reason);
   return d;
 }
 
@@ -181,7 +181,7 @@ function checkNow(chatId, msgIds, sender, wa) {
   const rows = msgIds.map((id) => db.db.prepare(`SELECT id, type, body, ts FROM messages WHERE id = ? AND chat_id = ?`).get(id, chatId)).filter(Boolean);
   if (!rows.length) return { error: 'الملف مش موجود' };
   markChecked(chatId);
-  runCheck(chatId, rows, wa, sender, 'فحص من الداشبورد').catch((err) => failed(chatId, `الفحص فشل: ${friendlyError(err.message)}`));
+  runCheck(chatId, rows, wa, sender, 'فحص من الداشبورد');
   return { ok: true };
 }
 
@@ -191,14 +191,31 @@ function checkNow(chatId, msgIds, sender, wa) {
 // الزبون أخد رسالة "الفريق رح يفحصها"، فإذا الفحص فشل بتطلعلك بالداشبورد تكتب النتيجة بإيدك
 const failed = (chatId, note) => db.addReply({ chatId, scenario: 'result', text: '', source: 'bot', note });
 
+// كل فحص بينسجل كطلب (صفحة "الطلبات" باللوحة)، وبيخلص يا بنتيجة يا بفشل — ما في طلب بيضل معلّق
 async function runCheck(chatId, msgs, wa, sender, why = '') {
+  const names = msgs.map((m) => (m.body || '').split('\n')[0].replace(/^📄 /, '') || 'ملف').join('، ');
+  const reqId = Number(db.db.prepare('INSERT INTO requests (chat_id, msg_ids, files, reason, started) VALUES (?, ?, ?, ?, ?)')
+    .run(chatId, JSON.stringify(msgs.map((m) => m.id)), names, why, db.now()).lastInsertRowid);
+  const finish = (replyId, error = null) => db.db.prepare('UPDATE requests SET finished = ?, reply_id = ?, error = ? WHERE id = ?').run(db.now(), replyId, error, reqId);
+  try {
+    const out = await checkFiles(chatId, msgs, wa, sender, why);
+    finish(out.replyId, out.error || null);
+  } catch (err) {
+    const note = `الفحص فشل: ${friendlyError(err.message)}`;
+    finish(failed(chatId, note), note);
+  }
+}
+
+// بيرجع { replyId, error? }
+async function checkFiles(chatId, msgs, wa, sender, why) {
   const cfg = settings.get().cv;
+  const fail = (note) => ({ replyId: failed(chatId, note), error: note });
   const files = [];
   for (const m of msgs) {
     const f = await wa.downloadMedia(m.id);
     if (f) files.push({ ...f, filename: f.filename || (m.body || '').replace(/^📄 /, '') });
   }
-  if (!files.length) return failed(chatId, 'ما قدرت أنزّل الملف — افتحه من الواتس وافحصه إنت');
+  if (!files.length) return fail('ما قدرت أنزّل الملف — افتحه من الواتس وافحصه إنت');
 
   // الدرجة من API موقعك (opti) وكرت الدرجة بيترسم هون — بدون Chrome
   const optiJob = cfg.useOpti
@@ -206,7 +223,7 @@ async function runCheck(chatId, msgs, wa, sender, why = '') {
     : Promise.resolve({ error: 'برنامج الفحص مطفي' });
 
   const [result, opti] = await Promise.all([cv.check({ files }), optiJob]);
-  if (result.unsupported) return failed(chatId, `نوع الملف مش مدعوم: ${files[0].filename || files[0].mimetype}`);
+  if (result.unsupported) return fail(`نوع الملف مش مدعوم: ${files[0].filename || files[0].mimetype}`);
 
   let text = result.text;
   let attachment = null;
@@ -223,7 +240,7 @@ async function runCheck(chatId, msgs, wa, sender, why = '') {
     files.map((f) => f.filename || 'صورة').join('، '),
     opti && !opti.error ? `الدرجة ${opti.score}%` : `بدون صورة الدرجة: ${opti?.error}`,
   ].filter(Boolean).join(' · ');
-  reply(chatId, 'result', text, sender, { note, attachment });
+  return { replyId: reply(chatId, 'result', text, sender, { note, attachment }) };
 }
 
 // "يعطيكي العافية استاذة داليا" ← وبعدها سطر الدرجة

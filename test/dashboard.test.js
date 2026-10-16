@@ -54,6 +54,35 @@ test('mute, reset (bot record) and delete (from the panel)', async () => {
   assert.deepStrictEqual((await api('/api/chats')).map((c) => c.id), ['u@c.us']);
 });
 
+test('requests page: each check with its status, pending filter, recheck', async () => {
+  db.saveChat({ id: 'q@c.us', name: 'طلبات' });
+  db.saveMessage({ id: 'qf', chatId: 'q@c.us', fromMe: false, type: 'document', body: '📄 cv.pdf', timestamp: 10 });
+  const add = (fields) => Number(db.db.prepare('INSERT INTO requests (chat_id, msg_ids, files, started, finished, reply_id, error) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run('q@c.us', '["qf"]', 'cv.pdf', db.now(), fields.finished ?? null, fields.reply_id ?? null, fields.error ?? null).lastInsertRowid);
+  const reply = (status, text = 'نتيجة') => {
+    const id = db.addReply({ chatId: 'q@c.us', scenario: 'result', text, source: 'bot' });
+    db.setReplyStatus(id, status);
+    return id;
+  };
+  const ids = {
+    checking: add({}),
+    ready: add({ finished: 1, reply_id: reply('pending') }),
+    sending: add({ finished: 1, reply_id: reply('queued') }),
+    sent: add({ finished: 1, reply_id: reply('sent') }),
+    send_failed: add({ finished: 1, reply_id: reply('failed') }),
+    check_failed: add({ finished: 1, reply_id: reply('pending', ''), error: 'فشل' }),
+    dismissed: add({ finished: 1, reply_id: reply('dismissed') }),
+  };
+  const all = await api('/api/requests?filter=all');
+  for (const [status, id] of Object.entries(ids)) assert.strictEqual(all.find((q) => q.id === id).status, status, status);
+
+  const pending = (await api('/api/requests')).filter((q) => q.chat_id === 'q@c.us').map((q) => q.status).sort();
+  assert.deepStrictEqual(pending, ['check_failed', 'checking', 'ready', 'send_failed', 'sending']);
+  assert.ok((await api('/api/state')).pendingRequests >= 5);
+
+  assert.ok((await api(`/api/requests/${ids.check_failed}/recheck`, {})).ok);
+});
+
 test('manual message, manual check, empty result, settings', async () => {
   await api('/api/chats/u%40c.us/send', { text: 'اهلا' });
   assert.strictEqual(db.getReply(queued.at(-1)).text, 'اهلا');
