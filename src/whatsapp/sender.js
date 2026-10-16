@@ -153,7 +153,7 @@ class SafeSender extends EventEmitter {
       }
     }
     this.echoes.set(`${chatId}|${text}`, echo);
-    const msgId = await withTimeout(this.wa.sendText(chatId, text), SEND_TIMEOUT_MS, 'الرسالة');
+    const msgId = await withTimeout(this.wa.sendText(chatId, text, { linkPreview: reply.scenario === 'group' }), SEND_TIMEOUT_MS, 'الرسالة');
     this.sentAt.push(Date.now());
     this._record(reply, msgId, 'chat', text, echo.by);
     const offline = setTimeout(() => {

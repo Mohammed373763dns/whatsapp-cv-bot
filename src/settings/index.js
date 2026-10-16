@@ -9,6 +9,7 @@ const DEFAULTS = {
   // نتيجة الفحص بتستناك تراجعها، وإذا ما بعتها خلال afterMin دقيقة بتنبعت لحالها
   autoSend: { enabled: true, afterMin: 15 },
   ackText: defaults.ACK_TEXT,
+  groupLink: '',          // رابط الجروب اللي بينبعت بعد نتيجة الفحص
   safety: defaults.SAFETY,
   ai: {
     enabled: true,

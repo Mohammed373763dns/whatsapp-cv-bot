@@ -103,6 +103,7 @@ async function state(wa, sender) {
     enabled: s.enabled,
     autoSend: s.autoSend,
     ackText: s.ackText,
+    groupLink: s.groupLink || '',
     queue: sender.queue.length,
     memory: require('../shared/system').memory(),
     results: results(),
@@ -149,6 +150,7 @@ function start({ wa, sender }) {
       const patch = {};
       if (typeof b.enabled === 'boolean') patch.enabled = b.enabled;
       if (typeof b.ackText === 'string' && b.ackText.trim()) patch.ackText = b.ackText.trim();
+      if (typeof b.groupLink === 'string') patch.groupLink = b.groupLink.trim();
       if (b.autoSend) {
         patch.autoSend = {};
         if (typeof b.autoSend.enabled === 'boolean') patch.autoSend.enabled = b.autoSend.enabled;

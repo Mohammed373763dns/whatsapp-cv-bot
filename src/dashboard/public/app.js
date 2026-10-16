@@ -120,6 +120,10 @@ function renderBar() {
     $('#ackText').value = S.ackText;
     $('#ackText').dataset.loaded = '1';
   }
+  if (!$('#groupLink').dataset.loaded) {
+    $('#groupLink').value = S.groupLink || '';
+    $('#groupLink').dataset.loaded = '1';
+  }
   $('#autoSend').checked = S.autoSend.enabled;
   if (document.activeElement !== $('#afterMin')) $('#afterMin').value = S.autoSend.afterMin;
 }
@@ -345,7 +349,7 @@ $('#enabled').onchange = async (e) => {
 $('#autoSend').onchange = (e) => api('/api/settings', { autoSend: { enabled: e.target.checked } });
 $('#afterMin').onchange = (e) => api('/api/settings', { autoSend: { afterMin: Number(e.target.value) } });
 $('#save').onclick = async () => {
-  await api('/api/settings', { ackText: $('#ackText').value, autoSend: { enabled: $('#autoSend').checked, afterMin: Number($('#afterMin').value) } });
+  await api('/api/settings', { ackText: $('#ackText').value, groupLink: $('#groupLink').value, autoSend: { enabled: $('#autoSend').checked, afterMin: Number($('#afterMin').value) } });
   $('#settings').close();
   toast('انحفظت الإعدادات');
 };

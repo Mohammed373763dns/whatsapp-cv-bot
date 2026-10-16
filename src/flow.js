@@ -162,6 +162,7 @@ function forwardCheck(chatId, jobId, sender) {
   const ownerId = `${job.owner_phone}@c.us`;
   db.saveChat({ id: ownerId, phone: job.owner_phone });
   reply(ownerId, 'result', result.text, sender, { attachment: result.attachment, note: `تحويل الفحص #${jobId}`, deliver: true });
+  afterResult(ownerId, job.owner_phone, sender);
   reply(chatId, 'ack', `تم إرسال الفحص للرقم ${job.owner_phone}`, sender);
   return true;
 }
@@ -178,7 +179,15 @@ function settleJob(jobId, out, sender) {
   }
   db.db.prepare('UPDATE file_checks SET status = ?, reply_id = ? WHERE id = ?').run('ready', result.id, jobId);
   sender.enqueue(result.id);
+  afterResult(job.chat_id, getJob(jobId).owner_phone, sender);
   sendOffer(jobId, sender);
+}
+
+// بعد النتيجة: رابط الجروب من الإعدادات، وبعده رقم صاحب الفحص
+function afterResult(chatId, phone, sender) {
+  const link = String(settings.get().groupLink || '').trim();
+  if (/^https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9_-]+/.test(link)) reply(chatId, 'group', link, sender);
+  if (phone) reply(chatId, 'owner_phone', `رقم صاحب الفحص: +${phone}`, sender);
 }
 
 async function beginCheck(jobId, sender, wa) {

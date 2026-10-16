@@ -350,16 +350,17 @@ class WhatsApp extends EventEmitter {
     }, chatId);
   }
 
-  sendText(chatId, text) {
+  sendText(chatId, text, { linkPreview = false } = {}) {
     return this.client.pupPage.evaluate(
-      async (chatId, text) => {
+      async (chatId, text, linkPreview) => {
         const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
         if (!chat) throw new Error('chat not found');
-        const msg = await window.WWebJS.sendMessage(chat, text, {});
+        const msg = await window.WWebJS.sendMessage(chat, text, linkPreview ? { linkPreview: true } : {});
         return msg ? msg.id.toString() : null;
       },
       chatId,
-      text
+      text,
+      linkPreview
     );
   }
 
