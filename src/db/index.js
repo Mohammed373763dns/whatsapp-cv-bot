@@ -187,4 +187,9 @@ module.exports = {
   setSetting(key, value) {
     stmt.setSetting.run(key, JSON.stringify(value));
   },
+
+  // تغيير رقم الواتس: محادثات الرقم القديم ما بتضل باللوحة
+  clearPanel() {
+    db.exec('DELETE FROM messages; DELETE FROM replies; DELETE FROM requests; DELETE FROM file_checks; DELETE FROM chats;');
+  },
 };

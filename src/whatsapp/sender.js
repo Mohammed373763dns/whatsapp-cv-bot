@@ -102,13 +102,17 @@ class SafeSender extends EventEmitter {
     const S = settings.get().safety;
     const { chat_id: chatId, text } = reply;
     const echo = { at: Date.now(), by: reply.source === 'manual' ? 2 : 1 };
-    // النتيجة إنت كبست عليها "ابعت" فبتطلع بسرعة. ردود البوت بتستنى شوي زي الإنسان
-    const [min, max] = reply.scenario === 'result' ? [1, 3] : [S.MIN_REPLY_DELAY_SEC, S.MAX_REPLY_DELAY_SEC];
-    await quick(this.wa.markSeen(chatId));
-    await sleep(rand(min, max) * 1000);
-    await this._waitForRateLimit();
-    await quick(this.wa.typing(chatId, true));
-    await sleep(Math.max(1.5, Math.min(text.length / rand(7, 13), S.MAX_TYPING_SEC)) * 1000);
+    // فحص الملف بينبعت فوراً. باقي رسائل اللوحة بتستنى شوي زي الإنسان
+    if (reply.pace === 'now') {
+      await this._waitForRateLimit();
+    } else {
+      const [min, max] = reply.scenario === 'result' ? [1, 3] : [S.MIN_REPLY_DELAY_SEC, S.MAX_REPLY_DELAY_SEC];
+      await quick(this.wa.markSeen(chatId));
+      await sleep(rand(min, max) * 1000);
+      await this._waitForRateLimit();
+      await quick(this.wa.typing(chatId, true));
+      await sleep(Math.max(1.5, Math.min(text.length / rand(7, 13), S.MAX_TYPING_SEC)) * 1000);
+    }
 
     // الزر بينبعت لمحادثة المستخدم. إذا الواتس رفض الأزرار، النص بينبعت لحاله و"أرسل" بتكفي
     if (reply.buttons) {
@@ -150,9 +154,10 @@ class SafeSender extends EventEmitter {
     const msgId = await withTimeout(this.wa.sendText(chatId, text), SEND_TIMEOUT_MS, 'الرسالة');
     this.sentAt.push(Date.now());
     this._record(reply, msgId, 'chat', text, echo.by);
-    setTimeout(() => {
+    const offline = setTimeout(() => {
       if (!this.queue.length) this.wa.goOffline?.().catch(() => {});
     }, rand(60, 150) * 1000);
+    offline.unref?.();
   }
 
   // الرسالة اللي انبعتت بتنحفظ بمحادثة اللوحة على طول. نفس id تبع الواتس، فإذا الواتس رجّعها كمان ما بتتكرر
@@ -160,6 +165,10 @@ class SafeSender extends EventEmitter {
     const id = msgId || `sent-${reply.id}`;
     if (db.db.prepare('SELECT 1 FROM messages WHERE id = ?').get(id) || db.sentRecently(reply.chat_id, body)) return;
     db.saveMessage({ id, chatId: reply.chat_id, fromMe: true, type, body, timestamp: db.now(), byBot: by });
+  }
+
+  cancelAll() {
+    this.queue = [];
   }
 
   // بيلغي أي رسالة لهاد الرقم لسا ما انبعتت (لما تمسح سجله أو تحذفه من الداشبورد)

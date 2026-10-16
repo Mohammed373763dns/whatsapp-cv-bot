@@ -350,7 +350,7 @@ $('#save').onclick = async () => {
   toast('انحفظت الإعدادات');
 };
 $('#relink').onclick = async () => {
-  if (!(await ask('تغيير رقم الواتس', 'الرقم الحالي بينفصل عن البوت، وبيطلعلك كود جديد تمسحه من الجوال التاني.', 'افصل الرقم', true))) return;
+  if (!(await ask('تغيير رقم الواتس', 'الرقم الحالي بينفصل، ومحادثات الرقم القديم بتنمسح من اللوحة. بعدين بيمسح الكود من الجوال الجديد.', 'افصل الرقم', true))) return;
   await api('/api/whatsapp/relink', {});
   $('#settings').close();
   toast('امسح الكود الجديد لما يطلع');
@@ -404,7 +404,7 @@ document.addEventListener('click', async (e) => {
 
   const card = t.closest('.result');
   if (t.hasAttribute('data-relink')) {
-    if (!(await ask('كود ربط جديد', 'الجلسة الحالية بتنمسح وبيطلع كود QR جديد خلال دقيقة تقريباً. امسحه من الجوال اللي بدك اياه.', 'اعرض الكود'))) return;
+    if (!(await ask('كود ربط جديد', 'الجلسة بتنمسح، ومحادثات الرقم القديم بتنمسح من اللوحة، وبيطلع كود QR جديد. امسحه من الجوال اللي بدك اياه.', 'اعرض الكود'))) return;
     return done(await api('/api/whatsapp/relink', {}), 'عم يجهز كود جديد...');
   }
   if (t.dataset.retry) return done(await api(`/api/replies/${t.dataset.retry}/send`, {}), 'عم تنبعت مرة كمان');

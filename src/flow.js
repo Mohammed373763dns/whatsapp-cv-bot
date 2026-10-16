@@ -1,7 +1,7 @@
 // البوت بيعمل شغلة وحدة: فحص الملف اللي بينبعتله
 //   - أي ملف (أو كم صورة ورا بعض) → "شو رقم صاحب الملف؟" وبعدها "جاري الفحص"
-//   - لما يخلص الفحص: النتيجة بتنبعت للي بعت الملف، ومعها زر يحوّل نفس الفحص لرقم صاحب الملف
-//   - الكلام العادي ما بيرد عليه. الفحص مش محصور بمرة وحدة لكل رقم
+//   - لما يخلص الفحص: النتيجة بتنبعت فوراً للي بعت الملف، ومعها زر يحوّل نفس الفحص لرقم صاحب الملف
+//   - الكلام العادي ما بيرد عليه. كل رقم بقدر يبعت كم ملف ما بدّه، وكل ملف بينفحص
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
@@ -18,8 +18,8 @@ const FILE_TYPES = new Set(['document', 'image']);
 // رسائل حقيقية بس. الباقي (e2e_notification وإشعارات الواتس) ما بنخزنه ولا بيبين باللوحة
 const REAL_TYPES = ['chat', 'image', 'document', 'ptt', 'audio', 'video', 'sticker', 'location', 'vcard', 'multi_vcard', 'buttons_response', 'template_button_reply'];
 const LABELS = { document: '📄 ملف', image: '📷 صورة', ptt: '🎤 رسالة صوتية', audio: '🎤 رسالة صوتية', video: '🎥 فيديو', sticker: 'ملصق', location: '📍 موقع', vcard: '👤 جهة اتصال', multi_vcard: '👤 جهات اتصال' };
-// منستنى شوي عشان كم صورة لنفس الملف تنفحص مع بعض، وبعدين منسأل مرة وحدة
-const FILE_WAIT_MS = 8e3;
+// ثواني قليلة بس عشان كم صورة لنفس الملف تنفحص مع بعض، وبعدين السؤال والفحص فوراً
+const FILE_WAIT_MS = 2e3;
 const ASK_PHONE = 'شو رقم صاحب الملف؟';
 const CHECKING = 'جاري الفحص';
 const SEND_BUTTON = 'أرسل الفحص لهذا الرقم';
@@ -38,7 +38,7 @@ const usedCheck = (chat) => USED.has(chat?.stage);
 // رد للزبون: بيمرق من الإرسال الآمن (توقيت بشري و"عم يكتب...")
 // نتيجة الفحص التلقائي بتنبعت على طول (deliver). فحص اللوحة بيستنى المراجعة
 function reply(chatId, kind, text, sender, extra = {}) {
-  const id = db.addReply({ chatId, scenario: kind, text, source: 'bot', ...extra });
+  const id = db.addReply({ chatId, scenario: kind, text, source: 'bot', ...extra, pace: extra.pace || 'now' });
   if (text && (extra.deliver || kind !== 'result')) sender.enqueue(id);
   return id;
 }
@@ -194,7 +194,7 @@ async function startJob(chatId, msgIds, sender, wa) {
   }
   reply(chatId, 'ask_phone', ASK_PHONE, sender);
   reply(chatId, 'checking', CHECKING, sender);
-  db.updateChat(chatId, { stage: RECEIVED });
+  // ما في حد لعدد الفحوصات لكل رقم: كل ملف جديد بيفحص لحاله
   settleJob(jobId, await runCheck(chatId, rows, wa, sender, 'ملف من الزبون'), sender);
 }
 

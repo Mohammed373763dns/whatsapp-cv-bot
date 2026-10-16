@@ -10,7 +10,19 @@ const db = require('./db');
 const wa = new WhatsApp();
 const sender = new SafeSender(wa);
 
-wa.on('status', (s) => console.log(`WhatsApp: ${s}`));
+function adoptAccount(account) {
+  const phone = String(account?.phone || '').replace(/\D/g, '');
+  if (!phone || db.getSetting('linkedPhone', null) === phone) return;
+  sender.cancelAll();
+  db.clearPanel();
+  db.setSetting('linkedPhone', phone);
+  console.log(`WhatsApp number is ${phone} — chats from the previous number were cleared`);
+}
+
+wa.on('status', (s) => {
+  console.log(`WhatsApp: ${s}`);
+  if (s === 'ready') adoptAccount(wa.account);
+});
 wa.on('message', (msg) => {
   if (!msg.fromMe) console.log(`<- ${msg.phone || msg.chatId} [${msg.type}] ${(msg.body || '').slice(0, 60)}`);
   flow.handle(msg, sender, wa).catch((err) => console.error('handle error:', err));

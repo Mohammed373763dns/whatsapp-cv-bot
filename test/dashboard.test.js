@@ -9,7 +9,7 @@ const settings = require('../src/settings');
 const dashboard = require('../src/dashboard/server');
 
 const queued = [];
-const server = dashboard.start({ wa: { status: 'ready', downloadMedia: async () => null }, sender: { queue: [], enqueue: (id) => queued.push(id), cancelForChat() {} } });
+const server = dashboard.start({ wa: { status: 'ready', downloadMedia: async () => null, relink() {} }, sender: { queue: [], enqueue: (id) => queued.push(id), cancelForChat() {}, cancelAll() {} } });
 const api = (url, body) =>
   fetch(`http://127.0.0.1:3014${url}`, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}).then((r) => r.json());
 const id = encodeURIComponent('t@c.us');
@@ -92,6 +92,10 @@ test('manual message, manual check, empty result, settings', async () => {
 
   const empty = db.addReply({ chatId: 'u@c.us', scenario: 'result', text: '', source: 'bot', note: 'فشل' });
   assert.ok((await api(`/api/replies/${empty}/send`, {})).error);
+
+  await api('/api/whatsapp/relink', {});
+  assert.deepStrictEqual(await api('/api/chats'), [], 'old number chats are cleared');
+  assert.strictEqual(db.getSetting('linkedPhone', 'x'), null);
 
   await api('/api/settings', { enabled: false, ackText: '  ', autoSend: { afterMin: 20 } });
   assert.strictEqual(settings.get().enabled, false);

@@ -159,7 +159,10 @@ function start({ wa, sender }) {
       return { ok: true };
     },
     'POST /api/whatsapp/relink': () => {
-      wa.relink();
+      sender.cancelAll();
+      db.clearPanel();
+      db.setSetting('linkedPhone', null);
+      wa.relink?.();
       return { ok: true };
     },
   };

@@ -60,6 +60,7 @@ test('a file asks the user for the owner number, then says the check is running'
   assert.deepStrictEqual(texts(), [], 'waits so several pages count as one file');
   await tick(t, 9e3);
   assert.deepStrictEqual(texts().slice(0, 2), ['شو رقم صاحب الملف؟', 'جاري الفحص']);
+  assert.ok(sent.slice(0, 2).every((r) => r.pace === 'now'));
   assert.ok(texts().every((s) => sent[texts().indexOf(s)].chat_id === 'b@c.us'));
   assert.ok(texts().some((s) => s.includes('ما قدرنا نكمل')));
 });
@@ -125,6 +126,27 @@ test('muted number or bot off → nothing', async (t) => {
   await tick(t, 9e3);
   assert.deepStrictEqual(texts(), []);
   settings.update({ enabled: true });
+});
+
+test('a check message with pace now is sent without the human delay', async () => {
+  const { SafeSender } = require('../src/whatsapp/sender');
+  const sentTexts = [];
+  const wa = {
+    ready: true,
+    sendText: async (id, text) => {
+      sentTexts.push(text);
+      return 'wa-1';
+    },
+    markSeen: () => new Promise(() => {}),
+    typing: () => new Promise(() => {}),
+  };
+  db.saveChat({ id: 'fast@c.us', phone: '970599000000' });
+  const id = db.addReply({ chatId: 'fast@c.us', scenario: 'checking', text: 'جاري الفحص', source: 'bot', pace: 'now' });
+  const fast = new SafeSender(wa);
+  fast.enqueue(id);
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(sentTexts, ['جاري الفحص']);
+  assert.strictEqual(db.getReply(id).status, 'sent');
 });
 
 test('result waits for review, then sends itself after the delay', () => {
